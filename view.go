@@ -272,7 +272,7 @@ func (m model) formView() string {
 		}
 		content = lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(label) + "\n\n" +
 			strings.Join(fields, "\n") + "\n\n" +
-			helpStyle.Render(" [Tab/Shift+Tab] Field  │  [Enter] Save  │  [Esc] Cancel ")
+			helpStyle.Render(" [Tab/Shift+Tab or Arrows] Field  │  [Enter] Save  │  [Esc] Cancel ")
 
 	case editNewGroup, editGroup:
 		label := "Edit Group"
@@ -284,7 +284,7 @@ func (m model) formView() string {
 			helpStyle.Render(" [Enter] Save  │  [Esc] Cancel ")
 	}
 
-	box := formStyle.Width(50).Render(content)
+	box := formStyle.Width(80).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
@@ -317,7 +317,7 @@ func (m model) iconPickView() string {
 		if i == m.iconPickCursor {
 			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(">" + cell))
 		} else {
-			b.WriteString(" " + cell + " ")
+			b.WriteString(" " + cell)
 		}
 	}
 
