@@ -174,7 +174,7 @@ func (m model) renderFooter() string {
 				lipgloss.NewStyle().Foreground(yellowColor).Render(hints),
 			)
 		}
-		hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Esc] Back  │  [q] Quit  ◆ unsaved"
+		hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Ctrl+P] Show pass  │  [Esc] Back  │  [q] Quit  ◆ unsaved"
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(yellowColor).Render(hints),
 		)
@@ -185,7 +185,7 @@ func (m model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(hints)
 	}
 
-	hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Esc] Back  │  [q] Quit"
+	hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Ctrl+P] Show pass  │  [Esc] Back  │  [q] Quit"
 	return footerStyle.Width(m.width - 2).Render(hints)
 }
 
@@ -226,7 +226,12 @@ func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
 	url := getEntryValue(entry, "URL")
 	notes := getEntryValue(entry, "Notes")
 
-	maskedPass := strings.Repeat("*", len(password))
+	var passDisplay string
+	if m.showPassword {
+		passDisplay = password
+	} else {
+		passDisplay = strings.Repeat("*", len(password))
+	}
 
 	emoji := iconEmoji(entry.IconID)
 	iconLabel := iconName(entry.IconID)
@@ -238,7 +243,7 @@ func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
 	b.WriteString(userName + "\n\n")
 
 	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("Password") + "\n")
-	b.WriteString(maskedPass + "\n\n")
+	b.WriteString(passDisplay + "\n\n")
 
 	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("URL") + "\n")
 	b.WriteString(url + "\n\n")

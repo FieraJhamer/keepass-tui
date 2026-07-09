@@ -476,6 +476,8 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "i", "I":
 		m = m.initIconPicker()
+	case "ctrl+p":
+		m.showPassword = !m.showPassword
 	}
 	return m, nil
 }
