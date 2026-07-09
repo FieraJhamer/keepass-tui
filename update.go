@@ -170,9 +170,9 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.editMode = editNone
 			m.statusMsg = "Cancelled"
-		case "tab":
+		case "tab", "down":
 			m.formField = (m.formField + 1) % 5
-		case "shift+tab":
+		case "shift+tab", "up":
 			m.formField = (m.formField - 1 + 5) % 5
 		case "enter", "\r", "\n":
 			title := m.formTitle.Value()
