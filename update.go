@@ -34,6 +34,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.screen {
+		case screenPicker:
+			return m.handlePickerKey(msg)
 		case screenUnlock:
 			return m.handleUnlockKey(msg)
 		case screenBrowse:
@@ -267,10 +269,39 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q", "Q", "esc":
 		return m, tea.Quit
+	case "up", "k", "K":
+		if m.fileCursor > 0 {
+			m.fileCursor--
+		}
+	case "down", "j", "J":
+		if m.fileCursor < len(m.files)-1 {
+			m.fileCursor++
+		}
+	case "enter", "\r", "\n":
+		if len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
+			m.filePath = m.files[m.fileCursor]
+			m.screen = screenUnlock
+			m.password = ""
+			m.showPassword = false
+			m.unlockErr = ""
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "Q":
+		return m, tea.Quit
+	case "esc":
+		m.password = ""
+		m.showPassword = false
+		m.unlockErr = ""
+		m.screen = screenPicker
 	case "enter", "\r", "\n":
 		db, err := openDatabase(m.filePath, m.password)
 		if err != nil {

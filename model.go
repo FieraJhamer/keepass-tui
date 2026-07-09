@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/tobischo/gokeepasslib/v3"
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,7 +11,8 @@ import (
 type screen int
 
 const (
-	screenUnlock screen = iota
+	screenPicker screen = iota
+	screenUnlock
 	screenBrowse
 	screenDetail
 )
@@ -44,7 +47,9 @@ type model struct {
 
 	screen   screen
 	ready    bool
-	filePath string
+	filePath   string
+	files      []string
+	fileCursor int
 
 	password     string
 	showPassword bool
@@ -87,15 +92,25 @@ type model struct {
 }
 
 func initialModel() model {
-	return model{
-		screen:      screenUnlock,
-		filePath:    "Database.kdbx",
+	files, _ := filepath.Glob("*.kdbx")
+	if len(files) == 0 {
+		files = []string{}
+	}
+
+	m := model{
+		screen:      screenPicker,
+		files:       files,
+		fileCursor:  0,
 		mode:        "normal",
 		groupCursor: 0,
 		entryCursor: 0,
 		focus:       focusGroups,
+		ready:       true,
 	}
+	return m
 }
+
+
 
 func (m model) Init() tea.Cmd {
 	return nil

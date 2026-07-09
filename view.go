@@ -25,6 +25,8 @@ func (m model) View() string {
 	}
 
 	switch m.screen {
+	case screenPicker:
+		return m.pickerView()
 	case screenUnlock:
 		return m.unlockView()
 	case screenBrowse:
@@ -33,6 +35,31 @@ func (m model) View() string {
 		return m.detailView()
 	}
 	return ""
+}
+
+func (m model) pickerView() string {
+	width := 80
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("Select Database") + "\n\n")
+
+	if len(m.files) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(redColor).Render("No .kdbx files found in current directory"))
+		b.WriteString("\n\n")
+		b.WriteString(helpStyle.Render(" [q] Quit "))
+	} else {
+		for i, f := range m.files {
+			if i == m.fileCursor {
+				b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> " + iconEmoji(0) + " " + f) + "\n")
+			} else {
+				b.WriteString("  " + iconEmoji(0) + " " + f + "\n")
+			}
+		}
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render(" [Arrow/j/k] Navigate  │  [Enter] Select  │  [q] Quit "))
+	}
+
+	box := unlockStyle.Width(width).Render(b.String())
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 func (m model) unlockView() string {
