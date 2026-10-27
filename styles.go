@@ -7,11 +7,8 @@ var (
 	accentColor = lipgloss.Color("#5f5fff")
 	textColor   = lipgloss.Color("#ffffff")
 	grayColor   = lipgloss.Color("#888888")
-	greenColor  = lipgloss.Color("#5fff87")
 	redColor    = lipgloss.Color("#ff5f5f")
 	yellowColor = lipgloss.Color("#ffff5f")
-
-	docStyle = lipgloss.NewStyle().Padding(1, 2)
 
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).

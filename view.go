@@ -42,21 +42,22 @@ func (m model) pickerView() string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("Select Database") + "\n\n")
 
-	if len(m.files) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(redColor).Render("No .kdbx files found in current directory"))
-		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render(" [q] Quit "))
-	} else {
-		for i, f := range m.files {
-			if i == m.fileCursor {
-				b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> " + iconEmoji(0) + " " + f) + "\n")
-			} else {
-				b.WriteString("  " + iconEmoji(0) + " " + f + "\n")
-			}
-		}
-		b.WriteString("\n")
-		b.WriteString(helpStyle.Render(" [Arrow/j/k] Navigate  │  [Enter] Select  │  [q] Quit "))
+	// Index 0 is the "create new" entry, the .kdbx files follow.
+	items := []string{iconEmoji(4) + " Create new database"}
+	for _, f := range m.files {
+		items = append(items, iconEmoji(0)+" "+f)
 	}
+
+	for i, item := range items {
+		if i == m.fileCursor {
+			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+item) + "\n")
+		} else {
+			b.WriteString("  " + item + "\n")
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render(" [Arrow/j/k] Navigate  │  [Enter] Select  │  [Ctrl+N] New database  │  [q] Quit "))
 
 	box := unlockStyle.Width(width).Render(b.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -167,25 +168,26 @@ func (m model) renderFooter() string {
 		)
 	}
 
-	if m.dirty {
-		if m.screen == screenBrowse {
-			hints := "[/] Command  │  [Tab] Focus  │  [n] New  │  [d] Del  │  [i] Icon  │  [q] Quit  ◆ unsaved"
-			return footerStyle.Width(m.width - 2).Render(
-				lipgloss.NewStyle().Foreground(yellowColor).Render(hints),
-			)
+	var hints string
+	switch {
+	case m.screen == screenBrowse && m.focus == focusGroups:
+		hints = "[/] Command  │  [Enter] Open  │  [n] New  │  [r] Rename  │  [d] Del  │  [i] Icon  │  [q] Quit"
+	case m.screen == screenBrowse:
+		hints = "[/] Command  │  [Enter] Details  │  [Esc] Back  │  [d] Del  │  [i] Icon  │  [q] Quit"
+	default:
+		toggle := "[p] Show pass"
+		if m.showEntryPass {
+			toggle = "[p] Hide pass"
 		}
-		hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Ctrl+P] Show pass  │  [Esc] Back  │  [q] Quit  ◆ unsaved"
+		hints = "[/] Command  │  [e] Edit  │  [i] Icon  │  " + toggle + "  │  [Esc] Back  │  [q] Quit"
+	}
+
+	if m.dirty {
+		hints += "  ◆ unsaved"
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(yellowColor).Render(hints),
 		)
 	}
-
-	if m.screen == screenBrowse {
-		hints := "[/] Command  │  [Tab] Focus  │  [n] New  │  [d] Del  │  [i] Icon  │  [q] Quit"
-		return footerStyle.Width(m.width - 2).Render(hints)
-	}
-
-	hints := "[/] Command  │  [e] Edit  │  [i] Icon  │  [Ctrl+P] Show pass  │  [Esc] Back  │  [q] Quit"
 	return footerStyle.Width(m.width - 2).Render(hints)
 }
 
@@ -227,7 +229,7 @@ func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
 	notes := getEntryValue(entry, "Notes")
 
 	var passDisplay string
-	if m.showPassword {
+	if m.showEntryPass {
 		passDisplay = password
 	} else {
 		passDisplay = strings.Repeat("*", len(password))
@@ -287,10 +289,34 @@ func (m model) formView() string {
 		content = lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(label) + "\n\n" +
 			m.renderField("Name", &m.formGroup, 0) + "\n\n" +
 			helpStyle.Render(" [Enter] Save  │  [Esc] Cancel ")
+
+	case editNewDB:
+		fields := []string{
+			m.renderNewDBField("File", 0),
+			m.renderNewDBField("Password", 1),
+			m.renderNewDBField("Confirm", 2),
+		}
+		toggle := "[Ctrl+P] Show pass"
+		if m.newDBShowPass {
+			toggle = "[Ctrl+P] Hide pass"
+		}
+		content = lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("New Database") + "\n\n" +
+			strings.Join(fields, "\n\n") + "\n\n" +
+			helpStyle.Render(" [Tab/Shift+Tab or Arrows] Field  │  "+toggle+"  │  [Enter] Create  │  [Esc] Cancel ")
 	}
 
 	box := formStyle.Width(80).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m model) renderNewDBField(label string, idx int) string {
+	l := labelStyle.Render(label + ":")
+	input := &m.newDBInputs[idx]
+	inp := input.View()
+	if idx == m.newDBCursor {
+		inp = lipgloss.NewStyle().Foreground(accentColor).Render(inp)
+	}
+	return l + " " + inp
 }
 
 func (m model) renderField(label string, input *textinput.Model, idx int) string {

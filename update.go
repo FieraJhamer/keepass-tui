@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -253,9 +254,13 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					g := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
 					if g != nil {
 						g.Name = name
-						m.groups[m.groupCursor].name = name
 						m.dirty = true
 						m.statusMsg = "Group renamed"
+						m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+						if m.groupCursor >= len(m.groups) {
+							m.groupCursor = len(m.groups) - 1
+						}
+						m = m.loadEntries()
 					}
 				}
 			}
@@ -263,6 +268,82 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		default:
 			m.formGroup.Focus()
 			m.formGroup, cmd = m.formGroup.Update(msg)
+		}
+
+	case editNewDB:
+		switch msg.String() {
+		case "esc":
+			m.editMode = editNone
+			m.statusMsg = "Cancelled"
+		case "ctrl+p":
+			m.newDBShowPass = !m.newDBShowPass
+			echo := textinput.EchoPassword
+			if m.newDBShowPass {
+				echo = textinput.EchoNormal
+			}
+			m.newDBInputs[1].EchoMode = echo
+			m.newDBInputs[2].EchoMode = echo
+		case "tab", "down":
+			m.newDBCursor = (m.newDBCursor + 1) % len(m.newDBInputs)
+		case "shift+tab", "up":
+			m.newDBCursor = (m.newDBCursor - 1 + len(m.newDBInputs)) % len(m.newDBInputs)
+		case "enter", "\r", "\n":
+			name := strings.TrimSpace(m.newDBInputs[0].Value())
+			pass := m.newDBInputs[1].Value()
+			confirm := m.newDBInputs[2].Value()
+
+			if name == "" {
+				m.statusMsg = "File name cannot be empty"
+				return m, nil
+			}
+			if strings.ContainsAny(name, `/\`) {
+				m.statusMsg = "File name must not contain a path"
+				return m, nil
+			}
+			if pass == "" {
+				m.statusMsg = "Master password cannot be empty"
+				return m, nil
+			}
+			if pass != confirm {
+				m.statusMsg = "Master passwords do not match"
+				return m, nil
+			}
+			if !strings.HasSuffix(strings.ToLower(name), ".kdbx") {
+				name += ".kdbx"
+			}
+			if _, err := os.Stat(name); err == nil {
+				m.statusMsg = "'" + name + "' already exists"
+				return m, nil
+			}
+
+			db, err := createDatabase(name, pass)
+			if err != nil {
+				m.statusMsg = "Could not create database: " + err.Error()
+				return m, nil
+			}
+
+			m.db = db
+			m.filePath = name
+			m.files = kdbxFiles()
+			m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+			m.groupCursor = 0
+			m.entryCursor = 0
+			m.focus = focusGroups
+			m.mode = "normal"
+			m.command = ""
+			m.editMode = editNone
+			m.screen = screenBrowse
+			m.statusMsg = "✓ Created " + name
+			m = m.loadEntries()
+		default:
+			for i := range m.newDBInputs {
+				if i == m.newDBCursor {
+					m.newDBInputs[i].Focus()
+				} else {
+					m.newDBInputs[i].Blur()
+				}
+			}
+			m.newDBInputs[m.newDBCursor], cmd = m.newDBInputs[m.newDBCursor].Update(msg)
 		}
 	}
 
@@ -273,17 +354,21 @@ func (m model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q", "Q", "esc":
 		return m, tea.Quit
+	case "ctrl+n":
+		m = m.startNewDB()
 	case "up", "k", "K":
 		if m.fileCursor > 0 {
 			m.fileCursor--
 		}
 	case "down", "j", "J":
-		if m.fileCursor < len(m.files)-1 {
+		if m.fileCursor < len(m.files) {
 			m.fileCursor++
 		}
 	case "enter", "\r", "\n":
-		if len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
-			m.filePath = m.files[m.fileCursor]
+		if m.fileCursor == 0 {
+			m = m.startNewDB()
+		} else if idx := m.fileCursor - 1; idx < len(m.files) {
+			m.filePath = m.files[idx]
 			m.screen = screenUnlock
 			m.password = ""
 			m.showPassword = false
@@ -291,6 +376,34 @@ func (m model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// startNewDB opens the form that creates a brand new .kdbx database.
+func (m model) startNewDB() model {
+	file := textinput.New()
+	file.Placeholder = "NewDatabase.kdbx"
+	file.CharLimit = 128
+	file.Width = 40
+	file.Focus()
+
+	pass := textinput.New()
+	pass.Placeholder = "Master password"
+	pass.CharLimit = 256
+	pass.Width = 40
+	pass.EchoMode = textinput.EchoPassword
+
+	confirm := textinput.New()
+	confirm.Placeholder = "Repeat master password"
+	confirm.CharLimit = 256
+	confirm.Width = 40
+	confirm.EchoMode = textinput.EchoPassword
+
+	m.newDBInputs = []textinput.Model{file, pass, confirm}
+	m.newDBCursor = 0
+	m.newDBShowPass = false
+	m.editMode = editNewDB
+	m.statusMsg = ""
+	return m
 }
 
 func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -374,15 +487,22 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.entryCursor++
 			}
 		}
-	case "tab":
-		if m.focus == focusGroups && len(m.entries) > 0 {
-			m.focus = focusEntries
-		} else {
+	case "esc":
+		if m.focus == focusEntries {
 			m.focus = focusGroups
+			m.statusMsg = ""
 		}
 	case "enter", "\r", "\n":
-		if m.focus == focusEntries && len(m.entries) > 0 {
+		if m.focus == focusGroups {
+			if len(m.entries) > 0 {
+				m.focus = focusEntries
+				m.entryCursor = 0
+			} else {
+				m.statusMsg = "Group has no entries"
+			}
+		} else if len(m.entries) > 0 {
 			m.detailEntry = &m.entries[m.entryCursor]
+			m.showEntryPass = false
 			m.screen = screenDetail
 		}
 	case "/":
@@ -394,6 +514,8 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.initEntryForm(editNewEntry, "", "", "", "", "")
 			m.editMode = editNewEntry
 		}
+	case "r", "R":
+		m = m.startRenameGroup()
 	case "d", "D":
 		if m.focus == focusEntries && len(m.entries) > 0 {
 			title := getEntryValue(&m.entries[m.entryCursor], "Title")
@@ -459,6 +581,7 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.screen = screenBrowse
 		m.detailEntry = nil
+		m.showEntryPass = false
 	case "/":
 		m.mode = "command"
 		m.command = "/"
@@ -476,8 +599,8 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "i", "I":
 		m = m.initIconPicker()
-	case "ctrl+p":
-		m.showPassword = !m.showPassword
+	case "p", "P":
+		m.showEntryPass = !m.showEntryPass
 	}
 	return m, nil
 }
@@ -544,6 +667,20 @@ func (m model) initEntryForm(mode editMode, title, userName, password, url, note
 	m.formPassword.Blur()
 	m.formURL.Blur()
 	m.formNotes.Blur()
+	return m
+}
+
+func (m model) startRenameGroup() model {
+	if m.focus != focusGroups || len(m.groups) == 0 {
+		return m
+	}
+	m.formGroup = textinput.New()
+	m.formGroup.Placeholder = "Group name"
+	m.formGroup.CharLimit = 128
+	m.formGroup.Width = 30
+	m.formGroup.SetValue(m.groups[m.groupCursor].name)
+	m.formGroup.Focus()
+	m.editMode = editGroup
 	return m
 }
 
@@ -642,6 +779,12 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.formGroup.Focus()
 		m.editMode = editNewGroup
 
+	case cmd == "/rename":
+		m = m.startRenameGroup()
+		if m.editMode == editNone {
+			m.statusMsg = "No group selected"
+		}
+
 	case cmd == "/edit":
 		if m.screen == screenDetail && m.detailEntry != nil {
 			m = m.initEntryForm(editEntry,
@@ -690,6 +833,8 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.entries = nil
 		m.detailEntry = nil
 		m.password = ""
+		m.showPassword = false
+		m.showEntryPass = false
 		m.unlockErr = ""
 		m.screen = screenUnlock
 		m.mode = "normal"

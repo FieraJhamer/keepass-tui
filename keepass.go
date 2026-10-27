@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tobischo/gokeepasslib/v3"
@@ -23,23 +24,55 @@ func openDatabase(path, password string) (*gokeepasslib.Database, error) {
 		return nil, err
 	}
 
-	db.UnlockProtectedEntries()
+	if err := db.UnlockProtectedEntries(); err != nil {
+		return nil, err
+	}
 	return db, nil
 }
 
+// saveDatabase writes to a temp file and renames it over the target, so a failed
+// or interrupted encode never truncates the existing database.
 func saveDatabase(db *gokeepasslib.Database, path string) error {
 	db.LockProtectedEntries()
+	defer db.UnlockProtectedEntries()
 
-	f, err := os.Create(path)
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	encoder := gokeepasslib.NewEncoder(f)
-	return encoder.Encode(db)
+	err = gokeepasslib.NewEncoder(f).Encode(db)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err = os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
+// createDatabase writes a fresh KDBX 4 database with a single empty group and
+// returns it opened and unlocked.
+func createDatabase(path, masterPassword string) (*gokeepasslib.Database, error) {
+	db := gokeepasslib.NewDatabase(gokeepasslib.WithDatabaseKDBXVersion4())
+	db.Credentials = gokeepasslib.NewPasswordCredentials(masterPassword)
+	db.Content.Meta.DatabaseName = strings.TrimSuffix(filepath.Base(path), ".kdbx")
+	db.Content.Root.Groups = []gokeepasslib.Group{newGroup("General", 5)}
+
+	if err := saveDatabase(db, path); err != nil {
+		return nil, err
+	}
+	return openDatabase(path, masterPassword)
+}
+
+// shortcut: group paths are "/"-joined, so a group whose name contains "/" breaks
+// lookup; switch to UUID-based paths if group names ever need slashes.
 func flattenGroups(groups []gokeepasslib.Group, prefix string, depth int) []groupInfo {
 	var result []groupInfo
 	for i := range groups {
@@ -166,12 +199,4 @@ func removeGroupByPath(groups *[]gokeepasslib.Group, path string) bool {
 		}
 	}
 	return false
-}
-
-func getGroupIcon(groups []gokeepasslib.Group, path string) int64 {
-	g := findGroup(groups, path)
-	if g != nil {
-		return g.IconID
-	}
-	return 0
 }

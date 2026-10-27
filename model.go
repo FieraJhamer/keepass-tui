@@ -32,6 +32,7 @@ const (
 	editEntry
 	editNewGroup
 	editGroup
+	editNewDB
 )
 
 type groupInfo struct {
@@ -53,6 +54,7 @@ type model struct {
 
 	password     string
 	showPassword bool
+	showEntryPass bool
 	unlockErr    string
 
 	db     *gokeepasslib.Database
@@ -83,6 +85,10 @@ type model struct {
 	formGroup    textinput.Model
 	formField    int
 
+	newDBInputs   []textinput.Model
+	newDBCursor   int
+	newDBShowPass bool
+
 	iconPickMode   bool
 	iconPickTarget string
 	iconPickCursor int
@@ -92,10 +98,7 @@ type model struct {
 }
 
 func initialModel() model {
-	files, _ := filepath.Glob("*.kdbx")
-	if len(files) == 0 {
-		files = []string{}
-	}
+	files := kdbxFiles()
 
 	m := model{
 		screen:      screenPicker,
@@ -107,7 +110,18 @@ func initialModel() model {
 		focus:       focusGroups,
 		ready:       true,
 	}
+	if len(files) > 0 {
+		m.fileCursor = 1
+	}
 	return m
+}
+
+func kdbxFiles() []string {
+	files, _ := filepath.Glob("*.kdbx")
+	if files == nil {
+		return []string{}
+	}
+	return files
 }
 
 
