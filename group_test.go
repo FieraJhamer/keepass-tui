@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,6 +13,18 @@ func groupModel(t *testing.T) model {
 	m.focus = focusGroups
 	m.groupCursor = 0
 	return m
+}
+
+func TestGroupsAreSeparatedByABlankLine(t *testing.T) {
+	m := groupModel(t)
+
+	lines := strings.Split(strings.TrimRight(m.renderSidebar(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines for 2 groups, got %d: %q", len(lines), lines)
+	}
+	if lines[1] != "" {
+		t.Fatalf("the groups should be separated by a blank line, got %q", lines[1])
+	}
 }
 
 func TestNewOnAGroupCreatesAGroup(t *testing.T) {

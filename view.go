@@ -140,6 +140,9 @@ func (m model) browseView() string {
 func (m model) renderSidebar() string {
 	var b strings.Builder
 	for i, g := range m.groups {
+		if i > 0 {
+			b.WriteString("\n")
+		}
 		prefix := strings.Repeat("  ", g.depth)
 		emoji := iconEmoji(g.iconID)
 		if i == m.groupCursor && m.focus == focusGroups {
