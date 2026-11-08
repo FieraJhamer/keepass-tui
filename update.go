@@ -115,7 +115,7 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleIconPickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cols := 8
+	cols := m.iconPickerCols()
 	totalIcons := len(icons)
 	switch msg.String() {
 	case "esc":
@@ -382,7 +382,7 @@ func (m model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if idx := m.fileCursor - 1; idx < len(m.files) {
 			m.filePath = m.files[idx]
 			m.screen = screenUnlock
-			m.password = ""
+			m.unlockInput = newPasswordInput()
 			m.showPassword = false
 			m.unlockErr = ""
 		}
@@ -420,45 +420,42 @@ func (m model) startNewDB() model {
 
 func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q", "Q":
+	case "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.password = ""
+		m.unlockInput.SetValue("")
 		m.showPassword = false
 		m.unlockErr = ""
 		m.screen = screenPicker
 	case "enter", "\r", "\n":
-		db, err := openDatabase(m.filePath, m.password)
+		db, err := openDatabase(m.filePath, m.unlockInput.Value())
 		if err != nil {
 			m.unlockErr = err.Error()
-			m.password = ""
+			m.unlockInput.SetValue("")
 			return m, nil
 		}
 		m.db = db
 		m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
 		m.screen = screenBrowse
 		m.unlockErr = ""
-		m.password = ""
+		m.unlockInput.SetValue("")
 		m.groupCursor = 0
 		m.entryCursor = 0
 		m.focus = focusGroups
 		m.mode = "normal"
 		m = m.loadEntries()
 		return m, nil
-	case "backspace":
-		if len(m.password) > 0 {
-			m.password = m.password[:len(m.password)-1]
-		}
 	case "ctrl+p":
 		m.showPassword = !m.showPassword
-	default:
-		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
-			for _, r := range msg.Runes {
-				if r >= 32 && r <= 126 {
-					m.password += string(r)
-				}
-			}
+		if m.showPassword {
+			m.unlockInput.EchoMode = textinput.EchoNormal
+		} else {
+			m.unlockInput.EchoMode = textinput.EchoPassword
 		}
+	default:
+		var cmd tea.Cmd
+		m.unlockInput, cmd = m.unlockInput.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -499,6 +496,11 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.entryCursor++
 			}
 		}
+	case "tab":
+		m.focus = focusEntries
+		m.entryCursor = 0
+	case "shift+tab":
+		m.focus = focusGroups
 	case "esc":
 		if m.searchQuery != "" {
 			m.searchQuery = ""
@@ -510,12 +512,10 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 	case "enter", "\r", "\n":
 		if m.focus == focusGroups {
-			if len(m.entries) > 0 {
-				m.focus = focusEntries
-				m.entryCursor = 0
-			} else {
-				m.statusMsg = "Group has no entries"
-			}
+			// An empty group still gets the focus, otherwise there would be
+			// no way to add its first entry.
+			m.focus = focusEntries
+			m.entryCursor = 0
 		} else if e := m.currentEntry(); e != nil {
 			m.detailEntry = e
 			m.showEntryPass = false
@@ -528,24 +528,28 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "N":
 		if m.focus == focusGroups {
 			m = m.startNewGroup()
-		} else {
+		} else if len(m.groups) > 0 {
 			m = m.initEntryForm(editNewEntry, nil)
 			m.editMode = editNewEntry
+		} else {
+			m.statusMsg = "No groups available"
 		}
 	case "r", "R":
 		m = m.startRenameGroup()
 	case "d", "D":
-		if e := m.currentEntry(); e != nil {
+		if m.focus == focusGroups {
+			if len(m.groups) > 0 {
+				name := m.groups[m.groupCursor].name
+				m.confirmMode = "deleteGroup"
+				m.confirmMsg = "Delete group '" + name + "'? (Y)es / (N)o"
+			}
+		} else if e := m.currentEntry(); e != nil {
 			title := getEntryValue(e, "Title")
 			if title == "" {
 				title = "untitled"
 			}
 			m.confirmMode = "deleteEntry"
 			m.confirmMsg = "Delete entry '" + title + "'? (Y)es / (N)o"
-		} else if m.focus == focusGroups && len(m.groups) > 0 {
-			name := m.groups[m.groupCursor].name
-			m.confirmMode = "deleteGroup"
-			m.confirmMsg = "Delete group '" + name + "'? (Y)es / (N)o"
 		}
 	case "i", "I":
 		m = m.initIconPicker()
@@ -790,34 +794,6 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 				m.statusMsg = "✓ Password copied to clipboard"
 			}
 		}
-	case cmd == "/copy-url":
-		if e := m.currentEntry(); e != nil {
-			val := getEntryValue(e, "URL")
-			if err := clipboard.WriteAll(val); err != nil {
-				m.statusMsg = "Clipboard error: " + err.Error()
-			} else {
-				m.statusMsg = "✓ URL copied to clipboard"
-			}
-		}
-	case cmd == "/copy-all":
-		var sb strings.Builder
-		if e := m.currentEntry(); e != nil {
-			sb.WriteString("Title: ")
-			sb.WriteString(getEntryValue(e, "Title"))
-			sb.WriteString("\nUsername: ")
-			sb.WriteString(getEntryValue(e, "UserName"))
-			sb.WriteString("\nPassword: ")
-			sb.WriteString(getEntryValue(e, "Password"))
-			sb.WriteString("\nURL: ")
-			sb.WriteString(getEntryValue(e, "URL"))
-			sb.WriteString("\nNotes: ")
-			sb.WriteString(getEntryValue(e, "Notes"))
-			if err := clipboard.WriteAll(sb.String()); err != nil {
-				m.statusMsg = "Clipboard error: " + err.Error()
-			} else {
-				m.statusMsg = "✓ Entry copied to clipboard"
-			}
-		}
 
 	case cmd == "/save":
 		err := saveDatabase(m.db, m.filePath)
@@ -860,17 +836,21 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		}
 
 	case cmd == "/delete":
-		if e := m.currentEntry(); e != nil {
+		if m.focus == focusGroups {
+			if len(m.groups) > 0 {
+				name := m.groups[m.groupCursor].name
+				m.confirmMode = "deleteGroup"
+				m.confirmMsg = "Delete group '" + name + "'? (Y)es / (N)o"
+			} else {
+				m.statusMsg = "Nothing to delete"
+			}
+		} else if e := m.currentEntry(); e != nil {
 			title := getEntryValue(e, "Title")
 			if title == "" {
 				title = "untitled"
 			}
 			m.confirmMode = "deleteEntry"
 			m.confirmMsg = "Delete entry '" + title + "'? (Y)es / (N)o"
-		} else if m.focus == focusGroups && len(m.groups) > 0 {
-			name := m.groups[m.groupCursor].name
-			m.confirmMode = "deleteGroup"
-			m.confirmMsg = "Delete group '" + name + "'? (Y)es / (N)o"
 		} else {
 			m.statusMsg = "Nothing to delete"
 		}
@@ -883,7 +863,7 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		m.groups = nil
 		m.entries = nil
 		m.detailEntry = nil
-		m.password = ""
+		m.unlockInput = newPasswordInput()
 		m.showPassword = false
 		m.showEntryPass = false
 		m.unlockErr = ""

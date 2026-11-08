@@ -66,20 +66,10 @@ func (m model) pickerView() string {
 func (m model) unlockView() string {
 	width := 50
 
-	var pwDisplay string
-	if m.showPassword {
-		pwDisplay = m.password
-	} else {
-		pwDisplay = strings.Repeat("*", len(m.password))
-	}
-	if len(m.password) == 0 {
-		pwDisplay = ""
-	}
-
 	content := fmt.Sprintf(
 		"%s\n\nPassword: %s",
 		lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("KeePass TUI"),
-		lipgloss.NewStyle().Foreground(textColor).Render(pwDisplay),
+		m.unlockInput.View(),
 	)
 
 	if m.unlockErr != "" {
@@ -88,7 +78,7 @@ func (m model) unlockView() string {
 
 	box := unlockStyle.Width(width).Render(content)
 
-	help := lipgloss.NewStyle().Foreground(grayColor).Render(" [Enter] Unlock  │  [Ctrl+P] Toggle  │  [Esc] Quit ")
+	help := lipgloss.NewStyle().Foreground(grayColor).Render(" [Enter] Unlock  │  [Ctrl+P] Toggle  │  [Esc] Back  │  [Ctrl+C] Quit ")
 	box = lipgloss.JoinVertical(lipgloss.Center, box, help)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -110,12 +100,18 @@ func (m model) browseView() string {
 		header := lipgloss.NewStyle().Foreground(accentColor).Bold(true).
 			Render(fmt.Sprintf("🔍 Results for %q", m.searchQuery))
 		if len(m.entries) > 0 {
-			contentView = header + "\n\n" + m.renderEntryList()
+			// The header takes two lines of the panel.
+			contentView = header + "\n\n" + m.renderEntryList(m.listHeight()-2)
 		} else {
 			contentView = header + "\n\n" + lipgloss.NewStyle().Foreground(grayColor).Render("No matching entries")
 		}
-	case m.focus == focusEntries && len(m.entries) > 0:
-		contentView = m.renderEntryList()
+	case m.focus == focusEntries:
+		if len(m.entries) > 0 {
+			contentView = m.renderEntryList(m.listHeight())
+		} else {
+			contentView = lipgloss.NewStyle().Foreground(grayColor).Render(
+				"No entries in this group.\n\n[n] New entry  │  [Tab] Back to groups")
+		}
 	default:
 		if len(m.groups) > 0 && m.groupCursor < len(m.groups) {
 			group := m.groups[m.groupCursor]
@@ -137,26 +133,65 @@ func (m model) browseView() string {
 	return m.composeScreen(top)
 }
 
+// listHeight returns how many content lines fit inside the panels: the screen
+// minus the top bar, the panel borders, the key hints and the status line.
+func (m model) listHeight() int {
+	h := m.height - 5
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// visibleRange returns the window of items to draw so the cursor stays on
+// screen. The window follows the cursor and never scrolls past the end.
+func visibleRange(cursor, count, size int) (int, int) {
+	if size < 1 {
+		size = 1
+	}
+	if count <= size {
+		return 0, count
+	}
+	start := cursor - size + 1
+	if start > count-size {
+		start = count - size
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start, start + size
+}
+
 func (m model) renderSidebar() string {
-	var b strings.Builder
-	for i, g := range m.groups {
-		if i > 0 {
-			b.WriteString("\n")
+	var lines []string
+	// Every group takes two lines: its name and the blank separator.
+	visible := m.listHeight() / 2
+	start, end := visibleRange(m.groupCursor, len(m.groups), visible)
+	for i := start; i < end; i++ {
+		g := m.groups[i]
+		if i > start {
+			lines = append(lines, "")
 		}
 		prefix := strings.Repeat("  ", g.depth)
 		emoji := iconEmoji(g.iconID)
 		if i == m.groupCursor && m.focus == focusGroups {
-			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+emoji+" "+prefix+g.name) + "\n")
+			lines = append(lines, lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+emoji+" "+prefix+g.name))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(textColor).Render("  "+emoji+" "+prefix+g.name) + "\n")
+			lines = append(lines, lipgloss.NewStyle().Foreground(textColor).Render("  "+emoji+" "+prefix+g.name))
 		}
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
-func (m model) renderEntryList() string {
-	var b strings.Builder
-	for i, item := range m.entries {
+func (m model) renderEntryList(height int) string {
+	var lines []string
+	// Every entry takes two lines: its name and the blank separator.
+	start, end := visibleRange(m.entryCursor, len(m.entries), height/2)
+	for i := start; i < end; i++ {
+		item := m.entries[i]
+		if i > start {
+			lines = append(lines, "")
+		}
 		title := getEntryValue(item.entry, "Title")
 		if title == "" {
 			title = "(untitled)"
@@ -167,38 +202,68 @@ func (m model) renderEntryList() string {
 			label += "  " + lipgloss.NewStyle().Foreground(grayColor).Render(item.groupPath)
 		}
 		if i == m.entryCursor {
-			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+label) + "\n")
+			lines = append(lines, lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+label))
 		} else {
-			b.WriteString("  " + label + "\n")
+			lines = append(lines, "  "+label)
 		}
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
+}
+
+// fitHints joins the hints that fit on a single line. The quit hint is
+// always kept so the user can always leave the app.
+func fitHints(width int, parts ...string) string {
+	const sep = " │ "
+	quit := "[q] Quit"
+	limit := width - lipgloss.Width(sep+quit)
+
+	line := ""
+	for _, p := range parts {
+		candidate := p
+		if line != "" {
+			candidate = line + sep + p
+		}
+		if lipgloss.Width(candidate) > limit {
+			continue
+		}
+		line = candidate
+	}
+	if line == "" {
+		return quit
+	}
+	return line + sep + quit
 }
 
 func (m model) renderFooter() string {
-	var hints string
+	var hints []string
 	switch {
 	case m.screen == screenBrowse && m.searchQuery != "":
-		hints = "[/] Command │ [↵] Details │ [Esc] Clear search │ [d] Del │ [i] Icon │ [q] Quit"
+		hints = []string{"[/] Command", "[↵] Details", "[Esc] Clear search", "[d] Del", "[i] Icon"}
 	case m.screen == screenBrowse && m.focus == focusGroups:
-		hints = "[/] Command │ [↵] Open │ [n] New group │ [r] Rename │ [d] Del │ [i] Icon │ [q] Quit"
+		hints = []string{"[/] Command", "[Tab] Entries", "[n] New group", "[r] Rename", "[d] Del", "[i] Icon"}
 	case m.screen == screenBrowse:
-		hints = "[/] Command │ [↵] Details │ [n] New entry │ [Esc] Back │ [d] Del │ [i] Icon │ [q] Quit"
+		hints = []string{"[/] Command", "[↵] Details", "[n] New entry", "[Tab] Groups", "[d] Del", "[i] Icon"}
 	default:
 		toggle := "[p] Show pass"
 		if m.showEntryPass {
 			toggle = "[p] Hide pass"
 		}
-		hints = "[/] Command │ [e] Edit │ [i] Icon │ " + toggle + " │ [Esc] Back │ [q] Quit"
+		hints = []string{"[/] Command", "[e] Edit", "[i] Icon", toggle, "[Esc] Back"}
 	}
 
+	width := m.width - 4
 	if m.dirty {
-		hints += "  ◆ unsaved"
+		width -= lipgloss.Width("  ◆ unsaved")
+	}
+	line := fitHints(width, hints...)
+
+	if m.dirty {
+		line += "  ◆ unsaved"
 		return footerStyle.Width(m.width - 2).Render(
-			lipgloss.NewStyle().Foreground(yellowColor).Render(hints),
+			lipgloss.NewStyle().Foreground(yellowColor).Render(line),
 		)
 	}
-	return footerStyle.Width(m.width - 2).Render(hints)
+	return footerStyle.Width(m.width - 2).Render(line)
 }
 
 // renderCommandBar draws the command line at the top of the screen. It is
@@ -293,7 +358,7 @@ func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
 
 	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render(fmt.Sprintf("Icon: %s %s (#%d)", emoji, iconLabel, entry.IconID)) + "\n\n")
 
-	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("/copy  /copy-url  /copy-all"))
+	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("/copy"))
 
 	return b.String()
 }
@@ -384,28 +449,101 @@ func (m model) renderIconField() string {
 	return l + " " + inp
 }
 
+// iconPickerCellWidth is the width of every icon cell in the picker.
+const iconPickerCellWidth = 8
+
+// iconPickerBoxWidth returns the width of the picker frame, capped so it does
+// not get wider than the terminal.
+func iconPickerBoxWidth(m model) int {
+	w := m.width - 2
+	if w > 100 {
+		w = 100
+	}
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
+// iconPickerCols returns how many icons fit on a row. The view and the key
+// handler must agree on it or the cursor jumps off the grid.
+func (m model) iconPickerCols() int {
+	// The frame, its padding and the row marker eat eight columns.
+	cols := (iconPickerBoxWidth(m) - 8) / iconPickerCellWidth
+	if cols < 1 {
+		cols = 1
+	}
+	return cols
+}
+
+// selectedIcon returns the icon under the cursor.
+func (m model) selectedIcon() iconInfo {
+	if m.iconPickCursor < 0 || m.iconPickCursor >= len(icons) {
+		return icons[0]
+	}
+	return icons[m.iconPickCursor]
+}
+
 func (m model) iconPickView() string {
-	cols := 11
 	var b strings.Builder
 
-	b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("Select Icon") + "\n\n")
+	title := "Select Icon"
+	switch m.iconPickTarget {
+	case "group":
+		title = "Select Icon for Group"
+	case "form":
+		title = "Select Icon for Entry"
+	}
+	b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(title) + "\n\n")
 
-	for i, icon := range icons {
-		if i > 0 && i%cols == 0 {
-			b.WriteString("\n")
-		}
-		cell := fmt.Sprintf(" %s%02d ", icon.Emoji, icon.ID)
-		if i == m.iconPickCursor {
-			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(">" + cell))
-		} else {
-			b.WriteString(" " + cell)
-		}
+	cols := m.iconPickerCols()
+
+	// The grid scrolls when the terminal is too short for every row. The box
+	// spends 10 lines on the title, the selected icon, the help and the frame.
+	rows := (len(icons) + cols - 1) / cols
+	avail := m.height - 10
+	if avail < 1 {
+		avail = 1
+	}
+	if avail > rows {
+		avail = rows
+	}
+	firstRow := 0
+	if row := m.iconPickCursor / cols; row >= avail {
+		firstRow = row - avail + 1
+	}
+	if firstRow > rows-avail {
+		firstRow = rows - avail
+	}
+	if firstRow < 0 {
+		firstRow = 0
 	}
 
-	b.WriteString("\n\n")
+	cell := lipgloss.NewStyle().Width(iconPickerCellWidth).Align(lipgloss.Center)
+	for row := firstRow; row < firstRow+avail && row < rows; row++ {
+		if m.iconPickCursor/cols == row {
+			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("▸ "))
+		} else {
+			b.WriteString("  ")
+		}
+		for i := row * cols; i < (row+1)*cols && i < len(icons); i++ {
+			if i == m.iconPickCursor {
+				b.WriteString(cell.Background(accentColor).Foreground(textColor).Bold(true).Render(icons[i].Emoji))
+			} else {
+				b.WriteString(cell.Render(icons[i].Emoji))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	selected := m.selectedIcon()
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("Selected:  ") +
+		selected.Emoji + " " +
+		lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(selected.Name) + "\n\n")
 	b.WriteString(helpStyle.Render(" [Arrow keys] Navigate  │  [Enter] Select  │  [Esc] Cancel "))
 
-	box := formStyle.Width(100).Render(b.String())
+	box := formStyle.Width(iconPickerBoxWidth(m)).Render(b.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 

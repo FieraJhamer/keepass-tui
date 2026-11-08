@@ -61,10 +61,10 @@ type model struct {
 	files      []string
 	fileCursor int
 
-	password      string
 	showPassword  bool
 	showEntryPass bool
 	unlockErr     string
+	unlockInput   textinput.Model
 
 	db     *gokeepasslib.Database
 	groups []groupInfo
@@ -120,11 +120,23 @@ func initialModel() model {
 		entryCursor: 0,
 		focus:       focusGroups,
 		ready:       true,
+		unlockInput: newPasswordInput(),
 	}
 	if len(files) > 0 {
 		m.fileCursor = 1
 	}
 	return m
+}
+
+// newPasswordInput builds the masked master password field.
+func newPasswordInput() textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = "Master password"
+	ti.CharLimit = 256
+	ti.Width = 40
+	ti.EchoMode = textinput.EchoPassword
+	ti.Focus()
+	return ti
 }
 
 func kdbxFiles() []string {
