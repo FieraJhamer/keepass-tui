@@ -105,12 +105,21 @@ func (m model) browseView() string {
 	sidebarView := sidebarStyle.Width(sidebarWidth).Render(sidebarContent)
 
 	var contentView string
-	if m.focus == focusEntries && len(m.entries) > 0 {
+	switch {
+	case m.searchQuery != "":
+		header := lipgloss.NewStyle().Foreground(accentColor).Bold(true).
+			Render(fmt.Sprintf("🔍 Results for %q", m.searchQuery))
+		if len(m.entries) > 0 {
+			contentView = header + "\n\n" + m.renderEntryList()
+		} else {
+			contentView = header + "\n\n" + lipgloss.NewStyle().Foreground(grayColor).Render("No matching entries")
+		}
+	case m.focus == focusEntries && len(m.entries) > 0:
 		contentView = m.renderEntryList()
-	} else {
+	default:
 		if len(m.groups) > 0 && m.groupCursor < len(m.groups) {
 			group := m.groups[m.groupCursor]
-			info := fmt.Sprintf("%s  %s\n\nEntries: %d\n\n[d] Delete group  │  [i] Icon",
+			info := fmt.Sprintf("%s  %s\n\nEntries: %d\n\n[n] New  │  [r] Rename  │  [d] Del  │  [i] Icon\n[/] Search in all groups",
 				iconEmoji(group.iconID),
 				lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(group.path),
 				len(m.entries),
@@ -125,9 +134,7 @@ func (m model) browseView() string {
 
 	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
 
-	footer := m.renderFooter()
-
-	return top + "\n" + footer + "\n" + m.statusMsg
+	return m.composeScreen(top)
 }
 
 func (m model) renderSidebar() string {
@@ -146,40 +153,40 @@ func (m model) renderSidebar() string {
 
 func (m model) renderEntryList() string {
 	var b strings.Builder
-	for i, entry := range m.entries {
-		title := getEntryValue(&entry, "Title")
+	for i, item := range m.entries {
+		title := getEntryValue(item.entry, "Title")
 		if title == "" {
 			title = "(untitled)"
 		}
-		emoji := iconEmoji(entry.IconID)
+		emoji := iconEmoji(item.entry.IconID)
+		label := emoji + " " + title
+		if m.searchQuery != "" {
+			label += "  " + lipgloss.NewStyle().Foreground(grayColor).Render(item.groupPath)
+		}
 		if i == m.entryCursor {
-			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+emoji+" "+title) + "\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+label) + "\n")
 		} else {
-			b.WriteString(fmt.Sprintf("  %s %s\n", emoji, title))
+			b.WriteString("  " + label + "\n")
 		}
 	}
 	return b.String()
 }
 
 func (m model) renderFooter() string {
-	if m.mode == "command" {
-		return footerStyle.Width(m.width - 2).Render(
-			lipgloss.NewStyle().Foreground(accentColor).Render(m.command),
-		)
-	}
-
 	var hints string
 	switch {
+	case m.screen == screenBrowse && m.searchQuery != "":
+		hints = "[/] Command │ [↵] Details │ [Esc] Clear search │ [d] Del │ [i] Icon │ [q] Quit"
 	case m.screen == screenBrowse && m.focus == focusGroups:
-		hints = "[/] Command  │  [Enter] Open  │  [n] New  │  [r] Rename  │  [d] Del  │  [i] Icon  │  [q] Quit"
+		hints = "[/] Command │ [↵] Open │ [n] New group │ [r] Rename │ [d] Del │ [i] Icon │ [q] Quit"
 	case m.screen == screenBrowse:
-		hints = "[/] Command  │  [Enter] Details  │  [Esc] Back  │  [d] Del  │  [i] Icon  │  [q] Quit"
+		hints = "[/] Command │ [↵] Details │ [n] New entry │ [Esc] Back │ [d] Del │ [i] Icon │ [q] Quit"
 	default:
 		toggle := "[p] Show pass"
 		if m.showEntryPass {
 			toggle = "[p] Hide pass"
 		}
-		hints = "[/] Command  │  [e] Edit  │  [i] Icon  │  " + toggle + "  │  [Esc] Back  │  [q] Quit"
+		hints = "[/] Command │ [e] Edit │ [i] Icon │ " + toggle + " │ [Esc] Back │ [q] Quit"
 	}
 
 	if m.dirty {
@@ -189,6 +196,34 @@ func (m model) renderFooter() string {
 		)
 	}
 	return footerStyle.Width(m.width - 2).Render(hints)
+}
+
+// renderCommandBar draws the command line at the top of the screen. It is
+// empty when the command mode is not active.
+func (m model) renderCommandBar() string {
+	if m.mode != "command" {
+		return ""
+	}
+	return footerStyle.Width(m.width - 2).Render(
+		lipgloss.NewStyle().Foreground(accentColor).Render(m.command),
+	)
+}
+
+// composeScreen puts the top bar on top and the content below it. The bar
+// shows the command line while typing a command and the key hints otherwise.
+// The status message stays at the bottom, where transient feedback belongs.
+func (m model) composeScreen(content string) string {
+	var b strings.Builder
+	bar := m.renderCommandBar()
+	if bar == "" {
+		bar = m.renderFooter()
+	}
+	b.WriteString(bar + "\n")
+	b.WriteString(content + "\n")
+	if m.statusMsg != "" {
+		b.WriteString(m.statusMsg)
+	}
+	return b.String()
 }
 
 func (m model) detailView() string {
@@ -212,9 +247,7 @@ func (m model) detailView() string {
 
 	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
 
-	footer := m.renderFooter()
-
-	return top + "\n" + footer + "\n" + m.statusMsg
+	return m.composeScreen(top)
 }
 
 func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
@@ -257,7 +290,7 @@ func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
 
 	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render(fmt.Sprintf("Icon: %s %s (#%d)", emoji, iconLabel, entry.IconID)) + "\n\n")
 
-	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("/copy-pass  /copy-user  /copy-url  /copy-all"))
+	b.WriteString(lipgloss.NewStyle().Foreground(grayColor).Render("/copy  /copy-url  /copy-all"))
 
 	return b.String()
 }
@@ -276,10 +309,15 @@ func (m model) formView() string {
 			m.renderField("Password", &m.formPassword, 2),
 			m.renderField("URL", &m.formURL, 3),
 			m.renderField("Notes", &m.formNotes, 4),
+			m.renderIconField(),
+		}
+		help := " [Tab/Shift+Tab or Arrows] Field  │  [Enter] Save  │  [Esc] Cancel "
+		if m.formField == 5 {
+			help = " [Enter] Pick icon  │  [Tab] Next field  │  [Esc] Cancel "
 		}
 		content = lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(label) + "\n\n" +
 			strings.Join(fields, "\n") + "\n\n" +
-			helpStyle.Render(" [Tab/Shift+Tab or Arrows] Field  │  [Enter] Save  │  [Esc] Cancel ")
+			helpStyle.Render(help)
 
 	case editNewGroup, editGroup:
 		label := "Edit Group"
@@ -330,6 +368,15 @@ func (m model) renderField(label string, input *textinput.Model, idx int) string
 		}
 	} else {
 		inp = input.View()
+	}
+	return l + " " + inp
+}
+
+func (m model) renderIconField() string {
+	l := labelStyle.Render("Icon:")
+	inp := iconEmoji(m.formIconID) + " " + iconName(m.formIconID)
+	if m.formField == 5 {
+		inp = lipgloss.NewStyle().Foreground(accentColor).Render(inp)
 	}
 	return l + " " + inp
 }

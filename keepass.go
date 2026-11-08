@@ -120,6 +120,42 @@ func getEntryValue(entry *gokeepasslib.Entry, key string) string {
 	return ""
 }
 
+// searchItems returns every entry in the database whose title, username or URL
+// contains the query, in group order.
+func searchItems(groups []gokeepasslib.Group, query string) []entryItem {
+	q := strings.ToLower(query)
+	var items []entryItem
+
+	var walk func(gs []gokeepasslib.Group, prefix string)
+	walk = func(gs []gokeepasslib.Group, prefix string) {
+		for i := range gs {
+			g := &gs[i]
+			path := g.Name
+			if prefix != "" {
+				path = prefix + "/" + g.Name
+			}
+			for j := range g.Entries {
+				e := &g.Entries[j]
+				if entryMatches(e, q) {
+					items = append(items, entryItem{groupPath: path, index: j, entry: e})
+				}
+			}
+			walk(g.Groups, path)
+		}
+	}
+	walk(groups, "")
+	return items
+}
+
+func entryMatches(entry *gokeepasslib.Entry, lowerQuery string) bool {
+	for _, key := range []string{"Title", "UserName", "URL"} {
+		if strings.Contains(strings.ToLower(getEntryValue(entry, key)), lowerQuery) {
+			return true
+		}
+	}
+	return false
+}
+
 func setEntryValue(entry *gokeepasslib.Entry, key, value string) {
 	for i := range entry.Values {
 		if entry.Values[i].Key == key {

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/tobischo/gokeepasslib/v3"
 )
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -68,10 +70,11 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "deleteEntry":
 		switch msg.String() {
 		case "y", "Y":
-			if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-				group := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
+			if e := m.currentEntry(); e != nil {
+				item := m.entries[m.entryCursor]
+				group := findGroup(m.db.Content.Root.Groups, item.groupPath)
 				if group != nil {
-					removeEntry(group, m.entryCursor)
+					removeEntry(group, item.index)
 					m.dirty = true
 					m.statusMsg = "Entry deleted"
 					m = m.loadEntries()
@@ -124,8 +127,8 @@ func (m model) handleIconPickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.detailEntry.IconID = id
 				m.dirty = true
 				m.statusMsg = iconEmoji(id) + " Icon updated"
-			} else if m.focus == focusEntries && len(m.entries) > 0 {
-				m.entries[m.entryCursor].IconID = id
+			} else if e := m.currentEntry(); e != nil {
+				e.IconID = id
 				m.dirty = true
 				m.statusMsg = iconEmoji(id) + " Icon updated"
 			}
@@ -138,6 +141,9 @@ func (m model) handleIconPickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.dirty = true
 				m.statusMsg = iconEmoji(id) + " Icon updated"
 			}
+		} else if m.iconPickTarget == "form" {
+			m.formIconID = id
+			m.statusMsg = iconEmoji(id) + " Icon selected"
 		}
 		m.iconPickMode = false
 	case "up", "k", "K":
@@ -172,10 +178,16 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editMode = editNone
 			m.statusMsg = "Cancelled"
 		case "tab", "down":
-			m.formField = (m.formField + 1) % 5
+			m.formField = (m.formField + 1) % 6
 		case "shift+tab", "up":
-			m.formField = (m.formField - 1 + 5) % 5
+			m.formField = (m.formField - 1 + 6) % 6
 		case "enter", "\r", "\n":
+			if m.formField == 5 {
+				m.iconPickMode = true
+				m.iconPickTarget = "form"
+				m.iconPickCursor = iconCursorFor(m.formIconID)
+				return m, nil
+			}
 			title := m.formTitle.Value()
 			userName := m.formUserName.Value()
 			password := m.formPassword.Value()
@@ -188,7 +200,7 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			if m.editMode == editNewEntry {
-				e := newEntry(title, userName, password, url, notes, 0)
+				e := newEntry(title, userName, password, url, notes, m.formIconID)
 				group := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
 				if group != nil {
 					group.Entries = append(group.Entries, e)
@@ -197,13 +209,13 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m = m.loadEntries()
 				}
 			} else {
-				if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-					e := &m.entries[m.entryCursor]
+				if e := m.currentEntry(); e != nil {
 					setEntryValue(e, "Title", title)
 					setEntryValue(e, "UserName", userName)
 					setEntryValue(e, "Password", password)
 					setEntryValue(e, "URL", url)
 					setEntryValue(e, "Notes", notes)
+					e.IconID = m.formIconID
 					m.dirty = true
 					m.statusMsg = "Entry saved"
 				}
@@ -488,10 +500,14 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "esc":
-		if m.focus == focusEntries {
+		if m.searchQuery != "" {
+			m.searchQuery = ""
+			m = m.loadEntries()
 			m.focus = focusGroups
-			m.statusMsg = ""
+		} else if m.focus == focusEntries {
+			m.focus = focusGroups
 		}
+		m.statusMsg = ""
 	case "enter", "\r", "\n":
 		if m.focus == focusGroups {
 			if len(m.entries) > 0 {
@@ -500,8 +516,8 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.statusMsg = "Group has no entries"
 			}
-		} else if len(m.entries) > 0 {
-			m.detailEntry = &m.entries[m.entryCursor]
+		} else if e := m.currentEntry(); e != nil {
+			m.detailEntry = e
 			m.showEntryPass = false
 			m.screen = screenDetail
 		}
@@ -510,15 +526,17 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = "/"
 		m.statusMsg = ""
 	case "n", "N":
-		if m.focus == focusEntries || (m.focus == focusGroups && len(m.groups) > 0) {
-			m = m.initEntryForm(editNewEntry, "", "", "", "", "")
+		if m.focus == focusGroups {
+			m = m.startNewGroup()
+		} else {
+			m = m.initEntryForm(editNewEntry, nil)
 			m.editMode = editNewEntry
 		}
 	case "r", "R":
 		m = m.startRenameGroup()
 	case "d", "D":
-		if m.focus == focusEntries && len(m.entries) > 0 {
-			title := getEntryValue(&m.entries[m.entryCursor], "Title")
+		if e := m.currentEntry(); e != nil {
+			title := getEntryValue(e, "Title")
 			if title == "" {
 				title = "untitled"
 			}
@@ -588,13 +606,7 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 	case "e", "E":
 		if m.detailEntry != nil {
-			m = m.initEntryForm(editEntry,
-				getEntryValue(m.detailEntry, "Title"),
-				getEntryValue(m.detailEntry, "UserName"),
-				getEntryValue(m.detailEntry, "Password"),
-				getEntryValue(m.detailEntry, "URL"),
-				getEntryValue(m.detailEntry, "Notes"),
-			)
+			m = m.initEntryForm(editEntry, m.detailEntry)
 			m.editMode = editEntry
 		}
 	case "i", "I":
@@ -605,25 +617,63 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// loadEntries fills the entry list with the current group's entries, or with
+// the search results when a search is active.
 func (m model) loadEntries() model {
 	if m.groupCursor >= len(m.groups) {
 		m.groupCursor = len(m.groups) - 1
 	}
-	if m.groupCursor < 0 || len(m.groups) == 0 {
-		m.entries = nil
-		return m
+	if m.groupCursor < 0 {
+		m.groupCursor = 0
 	}
-	group := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
-	if group != nil {
-		m.entries = group.Entries
+
+	if m.searchQuery != "" {
+		m.entries = searchItems(m.db.Content.Root.Groups, m.searchQuery)
 	} else {
-		m.entries = nil
+		m.entries = m.groupItems()
 	}
 	m.entryCursor = 0
 	return m
 }
 
-func (m model) initEntryForm(mode editMode, title, userName, password, url, notes string) model {
+// groupItems returns the entries of the currently selected group.
+func (m model) groupItems() []entryItem {
+	if len(m.groups) == 0 || m.groupCursor >= len(m.groups) {
+		return nil
+	}
+	path := m.groups[m.groupCursor].path
+	g := findGroup(m.db.Content.Root.Groups, path)
+	if g == nil {
+		return nil
+	}
+	items := make([]entryItem, 0, len(g.Entries))
+	for i := range g.Entries {
+		items = append(items, entryItem{groupPath: path, index: i, entry: &g.Entries[i]})
+	}
+	return items
+}
+
+// currentEntry returns the entry the cursor points at, or nil.
+func (m model) currentEntry() *gokeepasslib.Entry {
+	if m.entryCursor < 0 || m.entryCursor >= len(m.entries) {
+		return nil
+	}
+	return m.entries[m.entryCursor].entry
+}
+
+// initEntryForm prepares the entry form. A nil entry means a brand new one.
+func (m model) initEntryForm(mode editMode, e *gokeepasslib.Entry) model {
+	var title, userName, password, url, notes string
+	var iconID int64
+	if e != nil {
+		title = getEntryValue(e, "Title")
+		userName = getEntryValue(e, "UserName")
+		password = getEntryValue(e, "Password")
+		url = getEntryValue(e, "URL")
+		notes = getEntryValue(e, "Notes")
+		iconID = e.IconID
+	}
+
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -661,12 +711,23 @@ func (m model) initEntryForm(mode editMode, title, userName, password, url, note
 	m.formPassword = pi
 	m.formURL = uri
 	m.formNotes = ni
+	m.formIconID = iconID
 	m.formField = 0
 	m.formTitle.Focus()
 	m.formUserName.Blur()
 	m.formPassword.Blur()
 	m.formURL.Blur()
 	m.formNotes.Blur()
+	return m
+}
+
+func (m model) startNewGroup() model {
+	m.formGroup = textinput.New()
+	m.formGroup.Placeholder = "Group name"
+	m.formGroup.CharLimit = 128
+	m.formGroup.Width = 30
+	m.formGroup.Focus()
+	m.editMode = editNewGroup
 	return m
 }
 
@@ -687,43 +748,51 @@ func (m model) startRenameGroup() model {
 func (m model) initIconPicker() model {
 	m.iconPickMode = true
 	m.iconPickCursor = 0
-	if m.screen == screenDetail && m.detailEntry != nil {
+	m.iconPickTarget = ""
+	switch {
+	case m.screen == screenDetail && m.detailEntry != nil:
 		m.iconPickTarget = "entry"
-		m.iconPickCursor = int(m.detailEntry.IconID)
-	} else if m.focus == focusEntries && len(m.entries) > 0 {
-		m.iconPickTarget = "entry"
-		m.iconPickCursor = int(m.entries[m.entryCursor].IconID)
-	} else if m.focus == focusGroups && m.groupCursor < len(m.groups) {
+		m.iconPickCursor = iconCursorFor(m.detailEntry.IconID)
+	case m.focus == focusGroups && m.groupCursor < len(m.groups):
 		m.iconPickTarget = "group"
-		m.iconPickCursor = int(m.groups[m.groupCursor].iconID)
+		m.iconPickCursor = iconCursorFor(m.groups[m.groupCursor].iconID)
+	case m.currentEntry() != nil:
+		m.iconPickTarget = "entry"
+		m.iconPickCursor = iconCursorFor(m.currentEntry().IconID)
 	}
 	return m
 }
 
 func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	cmd = strings.TrimSpace(cmd)
+
+	// /search takes an argument, so it is matched before the exact commands.
+	if strings.HasPrefix(cmd, "/search") {
+		query := strings.TrimSpace(strings.TrimPrefix(cmd, "/search"))
+		if query == "" {
+			m.statusMsg = "Usage: /search <text>"
+			return m, nil
+		}
+		m.searchQuery = query
+		m = m.loadEntries()
+		m.focus = focusEntries
+		m.statusMsg = fmt.Sprintf("%d result(s) for %q", len(m.entries), query)
+		return m, nil
+	}
+
 	switch {
-	case cmd == "/copy-pass":
-		if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-			val := getEntryValue(&m.entries[m.entryCursor], "Password")
+	case cmd == "/copy":
+		if e := m.currentEntry(); e != nil {
+			val := getEntryValue(e, "Password")
 			if err := clipboard.WriteAll(val); err != nil {
 				m.statusMsg = "Clipboard error: " + err.Error()
 			} else {
 				m.statusMsg = "✓ Password copied to clipboard"
 			}
 		}
-	case cmd == "/copy-user":
-		if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-			val := getEntryValue(&m.entries[m.entryCursor], "UserName")
-			if err := clipboard.WriteAll(val); err != nil {
-				m.statusMsg = "Clipboard error: " + err.Error()
-			} else {
-				m.statusMsg = "✓ Username copied to clipboard"
-			}
-		}
 	case cmd == "/copy-url":
-		if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-			val := getEntryValue(&m.entries[m.entryCursor], "URL")
+		if e := m.currentEntry(); e != nil {
+			val := getEntryValue(e, "URL")
 			if err := clipboard.WriteAll(val); err != nil {
 				m.statusMsg = "Clipboard error: " + err.Error()
 			} else {
@@ -732,8 +801,7 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 		}
 	case cmd == "/copy-all":
 		var sb strings.Builder
-		if len(m.entries) > 0 && m.entryCursor < len(m.entries) {
-			e := &m.entries[m.entryCursor]
+		if e := m.currentEntry(); e != nil {
 			sb.WriteString("Title: ")
 			sb.WriteString(getEntryValue(e, "Title"))
 			sb.WriteString("\nUsername: ")
@@ -765,19 +833,14 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	case cmd == "/new-entry":
 		if len(m.groups) > 0 {
-			m = m.initEntryForm(editNewEntry, "", "", "", "", "")
+			m = m.initEntryForm(editNewEntry, nil)
 			m.editMode = editNewEntry
 		} else {
 			m.statusMsg = "No groups available"
 		}
 
 	case cmd == "/new-group":
-		m.formGroup = textinput.New()
-		m.formGroup.Placeholder = "Group name"
-		m.formGroup.CharLimit = 128
-		m.formGroup.Width = 30
-		m.formGroup.Focus()
-		m.editMode = editNewGroup
+		m = m.startNewGroup()
 
 	case cmd == "/rename":
 		m = m.startRenameGroup()
@@ -787,30 +850,18 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	case cmd == "/edit":
 		if m.screen == screenDetail && m.detailEntry != nil {
-			m = m.initEntryForm(editEntry,
-				getEntryValue(m.detailEntry, "Title"),
-				getEntryValue(m.detailEntry, "UserName"),
-				getEntryValue(m.detailEntry, "Password"),
-				getEntryValue(m.detailEntry, "URL"),
-				getEntryValue(m.detailEntry, "Notes"),
-			)
+			m = m.initEntryForm(editEntry, m.detailEntry)
 			m.editMode = editEntry
-		} else if m.focus == focusEntries && len(m.entries) > 0 {
-			m = m.initEntryForm(editEntry,
-				getEntryValue(&m.entries[m.entryCursor], "Title"),
-				getEntryValue(&m.entries[m.entryCursor], "UserName"),
-				getEntryValue(&m.entries[m.entryCursor], "Password"),
-				getEntryValue(&m.entries[m.entryCursor], "URL"),
-				getEntryValue(&m.entries[m.entryCursor], "Notes"),
-			)
+		} else if e := m.currentEntry(); e != nil {
+			m = m.initEntryForm(editEntry, e)
 			m.editMode = editEntry
 		} else {
 			m.statusMsg = "No entry selected"
 		}
 
 	case cmd == "/delete":
-		if m.focus == focusEntries && len(m.entries) > 0 {
-			title := getEntryValue(&m.entries[m.entryCursor], "Title")
+		if e := m.currentEntry(); e != nil {
+			title := getEntryValue(e, "Title")
 			if title == "" {
 				title = "untitled"
 			}

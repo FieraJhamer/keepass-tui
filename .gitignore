@@ -1,3 +1,5 @@
 *.kdbx
+*.kdbx.tmp
 *.exe
+*.exe~
 .opencode/

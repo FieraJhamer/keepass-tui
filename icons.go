@@ -61,7 +61,6 @@ var icons = []iconInfo{
 	{ID: 51, Emoji: "🕹️", Name: "Gaming"},
 }
 
-
 func iconEmoji(id int64) string {
 	if id >= 0 && id < int64(len(icons)) {
 		return icons[id].Emoji
@@ -74,4 +73,13 @@ func iconName(id int64) string {
 		return icons[id].Name
 	}
 	return "Unknown"
+}
+
+// iconCursorFor clamps an icon ID into the pickable range, since real
+// databases can carry icon IDs outside this mapping.
+func iconCursorFor(id int64) int {
+	if id < 0 || id >= int64(len(icons)) {
+		return 0
+	}
+	return int(id)
 }

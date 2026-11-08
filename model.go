@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/tobischo/gokeepasslib/v3"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/tobischo/gokeepasslib/v3"
 )
 
 type screen int
@@ -42,20 +42,29 @@ type groupInfo struct {
 	iconID int64
 }
 
+// entryItem points at an entry inside the database. It remembers the group and
+// the index so edits, icon changes and deletions reach the right entry even
+// when the list is a search result from another group.
+type entryItem struct {
+	groupPath string
+	index     int
+	entry     *gokeepasslib.Entry
+}
+
 type model struct {
 	width  int
 	height int
 
-	screen   screen
-	ready    bool
+	screen     screen
+	ready      bool
 	filePath   string
 	files      []string
 	fileCursor int
 
-	password     string
-	showPassword bool
+	password      string
+	showPassword  bool
 	showEntryPass bool
-	unlockErr    string
+	unlockErr     string
 
 	db     *gokeepasslib.Database
 	groups []groupInfo
@@ -63,8 +72,9 @@ type model struct {
 	groupCursor int
 	focus       focus
 
-	entries     []gokeepasslib.Entry
+	entries     []entryItem
 	entryCursor int
+	searchQuery string
 
 	detailEntry *gokeepasslib.Entry
 
@@ -73,10 +83,10 @@ type model struct {
 
 	statusMsg string
 
-	quit bool
+	quit  bool
 	dirty bool
 
-	editMode    editMode
+	editMode     editMode
 	formTitle    textinput.Model
 	formUserName textinput.Model
 	formPassword textinput.Model
@@ -84,6 +94,7 @@ type model struct {
 	formNotes    textinput.Model
 	formGroup    textinput.Model
 	formField    int
+	formIconID   int64
 
 	newDBInputs   []textinput.Model
 	newDBCursor   int
@@ -123,8 +134,6 @@ func kdbxFiles() []string {
 	}
 	return files
 }
-
-
 
 func (m model) Init() tea.Cmd {
 	return nil
