@@ -85,14 +85,6 @@ func (m model) unlockView() string {
 }
 
 func (m model) browseView() string {
-	contentWidth := m.width - sidebarWidth - 6
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	sidebarContent := m.renderSidebar()
-	sidebarView := sidebarStyle.Width(sidebarWidth).Render(sidebarContent)
-
 	var contentView string
 	switch {
 	case m.searchQuery != "":
@@ -135,11 +127,27 @@ func (m model) browseView() string {
 		}
 	}
 
-	panel := contentStyle.Width(contentWidth).Render(contentView)
+	return m.composeScreen(m.panels(contentView))
+}
 
-	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
+// panels draws the sidebar and the content side by side. Both boxes get the
+// same width and height so the frame does not jump between screens.
+func (m model) panels(contentView string) string {
+	contentWidth := m.width - sidebarWidth - 6
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
 
-	return m.composeScreen(top)
+	sidebarContent := m.renderSidebar()
+	height := lipgloss.Height(contentView)
+	if h := lipgloss.Height(sidebarContent); h > height {
+		height = h
+	}
+
+	sidebarView := sidebarStyle.Width(sidebarWidth).Height(height).Render(sidebarContent)
+	panel := contentStyle.Width(contentWidth).Height(height).Render(contentView)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
 }
 
 // currentPath returns the path of the selected group.
@@ -389,15 +397,6 @@ func (m model) composeScreen(content string) string {
 }
 
 func (m model) detailView() string {
-	sidebarWidth := 28
-	contentWidth := m.width - sidebarWidth - 6
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	sidebarContent := m.renderSidebar()
-	sidebarView := sidebarStyle.Width(sidebarWidth).Render(sidebarContent)
-
 	var contentView string
 	if m.detailEntry != nil {
 		contentView = m.renderEntryDetail(m.detailEntry)
@@ -405,11 +404,7 @@ func (m model) detailView() string {
 		contentView = "No entry selected"
 	}
 
-	panel := contentStyle.Width(contentWidth).Render(contentView)
-
-	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
-
-	return m.composeScreen(top)
+	return m.composeScreen(m.panels(contentView))
 }
 
 func (m model) renderEntryDetail(entry *gokeepasslib.Entry) string {
