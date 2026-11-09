@@ -187,9 +187,9 @@ func visibleRange(cursor, count, size int) (int, int) {
 	return start, start + size
 }
 
-// treeSegments returns one segment per ancestor level of a node, from the
-// root down: "│   " while the branch stays open, "    " when it closes.
-func treeSegments(groups []groupInfo, index int) []string {
+// treePrefix returns the branch characters that precede a node, built from
+// its ancestors, like the tree command of the terminal.
+func treePrefix(groups []groupInfo, index int) string {
 	var segs []string
 	level := groups[index].depth
 	for i := index - 1; i >= 0 && level > 1; i-- {
@@ -205,39 +205,7 @@ func treeSegments(groups []groupInfo, index int) []string {
 	for i, j := 0, len(segs)-1; i < j; i, j = i+1, j-1 {
 		segs[i], segs[j] = segs[j], segs[i]
 	}
-	return segs
-}
-
-// treePrefix returns the branch characters that precede a node, built from
-// its ancestors, like the tree command of the terminal.
-func treePrefix(groups []groupInfo, index int) string {
-	return strings.Join(treeSegments(groups, index), "")
-}
-
-// treeGap returns the branch characters that keep the tree connected on the
-// blank line between two groups. It takes the vertical lines of both sides,
-// so a branch that is still open keeps running through the blank line.
-func treeGap(groups []groupInfo, before, after int) string {
-	left := treeSegments(groups, before)
-	right := treeSegments(groups, after)
-
-	var b strings.Builder
-	for i := 0; i < len(left) || i < len(right); i++ {
-		seg := "    "
-		if hasBar(left, i) || hasBar(right, i) {
-			seg = "│   "
-		}
-		b.WriteString(seg)
-	}
-	return strings.TrimRight(b.String(), " ")
-}
-
-// hasBar tells if the tree segment at the given level has a vertical line.
-func hasBar(segs []string, i int) bool {
-	if i >= len(segs) {
-		return false
-	}
-	return strings.HasPrefix(segs[i], "│")
+	return strings.Join(segs, "")
 }
 
 func (m model) renderSidebar() string {
@@ -247,10 +215,9 @@ func (m model) renderSidebar() string {
 	start, end := visibleRange(m.groupCursor, len(m.groups), visible)
 	for i := start; i < end; i++ {
 		g := m.groups[i]
-		// A blank line separates every group. The tree characters keep
-		// running on it, so the tree still reads as a tree.
+		// A blank line separates every group.
 		if i > start {
-			lines = append(lines, "  "+treeGap(m.groups, i-1, i))
+			lines = append(lines, "")
 		}
 
 		label := g.name

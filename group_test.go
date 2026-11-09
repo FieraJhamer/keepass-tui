@@ -23,26 +23,25 @@ func TestGroupsAreSeparatedByABlankLine(t *testing.T) {
 	if len(lines) != 5 {
 		t.Fatalf("expected 5 lines for the root and 2 groups, got %d: %q", len(lines), lines)
 	}
-	// The separator holds nothing but the vertical lines of the tree.
+	// The separator is a plain blank line.
 	for _, i := range []int{1, 3} {
-		if strings.Trim(lines[i], " │") != "" {
+		if lines[i] != "" {
 			t.Fatalf("the groups should be separated by a blank line, got %q", lines)
 		}
 	}
 }
 
-// The blank line between two groups keeps the tree connected.
-func TestTheBlankLineKeepsTheTreeConnected(t *testing.T) {
-	m := groupModel(t)
+// The entries of a group are separated by a blank line too.
+func TestEntriesAreSeparatedByABlankLine(t *testing.T) {
+	m := searchModel(t)
+	m.focus = focusEntries
 
-	// A group inside General.
-	m.db.Content.Root.Groups[0].Groups = append(m.db.Content.Root.Groups[0].Groups, newGroup("Trabajo", 0))
-	m.groups = m.groupTree()
-
-	lines := strings.Split(m.renderSidebar(), "\n")
-	// Root, separator, General, separator, Trabajo.
-	if !strings.Contains(lines[3], "│") {
-		t.Fatalf("the separator should keep the vertical line, got %q", lines[3])
+	lines := strings.Split(strings.TrimRight(m.renderEntryList(10), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines for 2 entries, got %d: %q", len(lines), lines)
+	}
+	if lines[1] != "" {
+		t.Fatalf("the entries should be separated by a blank line, got %q", lines)
 	}
 }
 
