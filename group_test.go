@@ -16,17 +16,17 @@ func groupModel(t *testing.T) model {
 	return m
 }
 
-func TestGroupsAreSeparatedByABlankLine(t *testing.T) {
+// The groups take one line each, with no blank line between them.
+func TestGroupsHaveNoBlankLineBetweenThem(t *testing.T) {
 	m := groupModel(t)
 
 	lines := strings.Split(strings.TrimRight(m.renderSidebar(), "\n"), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("expected 5 lines for the root and 2 groups, got %d: %q", len(lines), lines)
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines for the root and 2 groups, got %d: %q", len(lines), lines)
 	}
-	// The separator is a plain blank line.
-	for _, i := range []int{1, 3} {
-		if lines[i] != "" {
-			t.Fatalf("the groups should be separated by a blank line, got %q", lines)
+	for _, l := range lines {
+		if l == "" {
+			t.Fatalf("the groups should not have blank lines between them, got %q", lines)
 		}
 	}
 }

@@ -222,7 +222,7 @@ func TestSidebarScrollsToKeepTheCursorVisible(t *testing.T) {
 		m.db.Content.Root.Groups[0].Groups = append(m.db.Content.Root.Groups[0].Groups,
 			newGroup(fmt.Sprintf("Group %02d", i), 0))
 	}
-	m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+	m.groups = m.groupTree()
 
 	if lines := len(strings.Split(m.View(), "\n")); lines > m.height {
 		t.Fatalf("the view is %d lines tall, the screen is %d", lines, m.height)

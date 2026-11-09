@@ -210,15 +210,11 @@ func treePrefix(groups []groupInfo, index int) string {
 
 func (m model) renderSidebar() string {
 	var lines []string
-	// Every group takes two lines: its name and the blank separator.
-	visible := m.listHeight() / 2
+	// Every group takes one line, the tree stays compact.
+	visible := m.listHeight()
 	start, end := visibleRange(m.groupCursor, len(m.groups), visible)
 	for i := start; i < end; i++ {
 		g := m.groups[i]
-		// A blank line separates every group.
-		if i > start {
-			lines = append(lines, "")
-		}
 
 		label := g.name
 		if g.depth > 0 {
