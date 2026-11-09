@@ -58,11 +58,14 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s", "S":
 			m.confirmMode = ""
 			m.confirmMsg = ""
+			// The flag tells the save that the program has to close after it.
+			m.quit = true
 			return m.executeCommand("/save")
 		case "d", "D":
 			m.confirmMode = ""
 			m.confirmMsg = ""
 			m.quit = true
+			return m, tea.Quit
 		case "c", "C", "esc":
 			m.confirmMode = ""
 			m.confirmMsg = ""
@@ -844,6 +847,8 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	case cmd == "/save":
 		err := saveDatabase(m.db, m.filePath)
 		if err != nil {
+			// The program stays open: closing now would lose the changes.
+			m.quit = false
 			m.statusMsg = "Save error: " + err.Error()
 		} else {
 			m.dirty = false
@@ -925,6 +930,7 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.quit = true
+		return m, tea.Quit
 
 	default:
 		m.statusMsg = "Unknown command: " + cmd

@@ -89,3 +89,65 @@ func TestDetailHintsOfferCopy(t *testing.T) {
 		t.Fatalf("the footer should offer the copy key, got %q", m.renderFooter())
 	}
 }
+
+// Quitting with unsaved changes asks first. Saving and quitting has to save
+// the database and close the program.
+func TestSaveAndQuitClosesTheProgram(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.kdbx")
+	m := initialModel()
+	m.db = testDB()
+	m.filePath = path
+	m.screen = screenBrowse
+	m.dirty = true
+
+	// The q key opens the confirmation.
+	after, _ := m.Update(keyRunes("q"))
+	m = after.(model)
+	if m.confirmMode != "quit" {
+		t.Fatalf("confirmMode = %q, want %q", m.confirmMode, "quit")
+	}
+
+	// S saves the database and closes the program.
+	after, cmd := m.Update(keyRunes("s"))
+	m = after.(model)
+	if !isQuit(cmd) {
+		t.Fatal("save and quit should close the program")
+	}
+	if m.dirty {
+		t.Fatal("save and quit should clear the dirty flag")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the database file should exist: %v", err)
+	}
+}
+
+// Discarding the changes closes the program too.
+func TestDiscardAndQuitClosesTheProgram(t *testing.T) {
+	m := searchModel(t)
+	m.dirty = true
+	m.confirmMode = "quit"
+
+	_, cmd := m.Update(keyRunes("d"))
+	if !isQuit(cmd) {
+		t.Fatal("discard and quit should close the program")
+	}
+}
+
+// The quit command closes the program when there is nothing to save.
+func TestQuitCommandClosesTheProgram(t *testing.T) {
+	m := searchModel(t)
+
+	_, cmd := m.executeCommand("/quit")
+	if !isQuit(cmd) {
+		t.Fatal("/quit should close the program")
+	}
+}
+
+// isQuit tells if a command closes the program.
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
