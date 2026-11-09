@@ -142,8 +142,12 @@ func TestNewDBFormCreatesDatabaseAndOpensIt(t *testing.T) {
 	if m.db == nil {
 		t.Fatal("the new database should be loaded")
 	}
-	if len(m.groups) != 1 || m.groups[0].name != "General" {
-		t.Fatalf("expected a single General group, got %v", m.groups)
+	// The sidebar holds the synthetic root plus the General group.
+	if len(m.groups) != 2 || m.groups[0].name != "Fresh" || m.groups[1].name != "General" {
+		t.Fatalf("expected the root and General, got %v", m.groups)
+	}
+	if len(m.db.Content.Root.Groups) != 1 || m.db.Content.Root.Groups[0].Name != "General" {
+		t.Fatalf("expected a single General group in the database, got %v", m.db.Content.Root.Groups)
 	}
 	if _, err := os.Stat("Fresh.kdbx"); err != nil {
 		t.Fatalf("the database file should exist: %v", err)

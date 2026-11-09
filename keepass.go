@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,39 @@ func createDatabase(path, masterPassword string) (*gokeepasslib.Database, error)
 	return openDatabase(path, masterPassword)
 }
 
+// deleteGroupPrompt warns how much is inside the group before deleting it.
+func deleteGroupPrompt(name string, g *gokeepasslib.Group) string {
+	msg := "Delete group '" + name + "'?"
+	if g != nil {
+		groups, entries := countContents(g)
+		if groups > 0 || entries > 0 {
+			msg += fmt.Sprintf(" It contains %s and %s.",
+				plural(groups, "group", "groups"), plural(entries, "entry", "entries"))
+		}
+	}
+	return msg + " (Y)es / (N)o"
+}
+
+// plural writes a count with its noun in the right number.
+func plural(n int, singular, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// countContents returns how many groups and entries a group holds, including
+// the ones in its subgroups.
+func countContents(g *gokeepasslib.Group) (groups, entries int) {
+	entries = len(g.Entries)
+	for i := range g.Groups {
+		subGroups, subEntries := countContents(&g.Groups[i])
+		groups += 1 + subGroups
+		entries += subEntries
+	}
+	return groups, entries
+}
+
 // shortcut: group paths are "/"-joined, so a group whose name contains "/" breaks
 // lookup; switch to UUID-based paths if group names ever need slashes.
 func flattenGroups(groups []gokeepasslib.Group, prefix string, depth int) []groupInfo {
@@ -81,10 +115,44 @@ func flattenGroups(groups []gokeepasslib.Group, prefix string, depth int) []grou
 		if prefix != "" {
 			path = prefix + "/" + g.Name
 		}
-		result = append(result, groupInfo{name: g.Name, path: path, depth: depth, iconID: g.IconID})
+		result = append(result, groupInfo{
+			name:   g.Name,
+			path:   path,
+			depth:  depth,
+			iconID: g.IconID,
+			last:   i == len(groups)-1,
+		})
 		result = append(result, flattenGroups(g.Groups, path, depth+1)...)
 	}
 	return result
+}
+
+// groupTree returns the sidebar list: the database root followed by every
+// group. The root is synthetic, it only exists to draw the tree and to create
+// top level groups.
+func (m model) groupTree() []groupInfo {
+	root := groupInfo{name: m.rootName(), path: "", depth: 0, last: true}
+	if m.db == nil {
+		return []groupInfo{root}
+	}
+	tree := flattenGroups(m.db.Content.Root.Groups, "", 1)
+	return append([]groupInfo{root}, tree...)
+}
+
+// rootName is the label of the synthetic root node.
+func (m model) rootName() string {
+	if m.db != nil && m.db.Content.Meta.DatabaseName != "" {
+		return m.db.Content.Meta.DatabaseName
+	}
+	if m.filePath != "" {
+		return strings.TrimSuffix(filepath.Base(m.filePath), ".kdbx")
+	}
+	return "Database"
+}
+
+// atRoot tells if the selected node is the synthetic database root.
+func (m model) atRoot() bool {
+	return m.groupCursor >= 0 && m.groupCursor < len(m.groups) && m.groups[m.groupCursor].path == ""
 }
 
 func findGroup(groups []gokeepasslib.Group, path string) *gokeepasslib.Group {

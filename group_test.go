@@ -11,7 +11,8 @@ func groupModel(t *testing.T) model {
 	t.Helper()
 	m := searchModel(t)
 	m.focus = focusGroups
-	m.groupCursor = 0
+	// Index 1 is the first real group, index 0 is the database root.
+	m.groupCursor = 1
 	return m
 }
 
@@ -19,11 +20,37 @@ func TestGroupsAreSeparatedByABlankLine(t *testing.T) {
 	m := groupModel(t)
 
 	lines := strings.Split(strings.TrimRight(m.renderSidebar(), "\n"), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 lines for 2 groups, got %d: %q", len(lines), lines)
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 lines for the root and 2 groups, got %d: %q", len(lines), lines)
 	}
-	if lines[1] != "" {
-		t.Fatalf("the groups should be separated by a blank line, got %q", lines[1])
+	if lines[1] != "" || lines[3] != "" {
+		t.Fatalf("the groups should be separated by a blank line, got %q", lines)
+	}
+}
+
+// The sidebar draws the groups as a tree, like the tree command.
+func TestSidebarDrawsTheGroupsAsATree(t *testing.T) {
+	m := groupModel(t)
+
+	// A group inside General.
+	m.db.Content.Root.Groups[0].Groups = append(m.db.Content.Root.Groups[0].Groups, newGroup("Trabajo", 0))
+	m.groups = m.groupTree()
+
+	lines := strings.Split(m.renderSidebar(), "\n")
+	joined := strings.Join(lines, "\n")
+
+	if !strings.Contains(joined, "├───General") {
+		t.Fatalf("General should have a branch, got %q", joined)
+	}
+	if !strings.Contains(joined, "│   └───Trabajo") {
+		t.Fatalf("Trabajo should hang from General, got %q", joined)
+	}
+	if !strings.Contains(joined, "└───Work") {
+		t.Fatalf("Work should be the last branch, got %q", joined)
+	}
+	// The icon goes on the right of the title.
+	if !strings.Contains(joined, "General ") || !strings.Contains(joined, "General                     🔑") {
+		t.Fatalf("the icon should be at the right of the title, got %q", joined)
 	}
 }
 

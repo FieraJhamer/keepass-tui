@@ -94,7 +94,7 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if removeGroupByPath(&m.db.Content.Root.Groups, path) {
 					m.dirty = true
 					m.statusMsg = "Group deleted"
-					m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+					m.groups = m.groupTree()
 					if m.groupCursor >= len(m.groups) {
 						m.groupCursor = len(m.groups) - 1
 					}
@@ -201,13 +201,18 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			if m.editMode == editNewEntry {
 				e := newEntry(title, userName, password, url, notes, m.formIconID)
-				group := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
-				if group != nil {
-					group.Entries = append(group.Entries, e)
-					m.dirty = true
-					m.statusMsg = "Entry created"
-					m = m.loadEntries()
+				var group *gokeepasslib.Group
+				if m.groupCursor >= 0 && m.groupCursor < len(m.groups) {
+					group = findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
 				}
+				if group == nil {
+					m.statusMsg = "Select a group to hold the entry"
+					return m, nil
+				}
+				group.Entries = append(group.Entries, e)
+				m.dirty = true
+				m.statusMsg = "Entry created"
+				m = m.loadEntries()
 			} else {
 				if e := m.currentEntry(); e != nil {
 					setEntryValue(e, "Title", title)
@@ -257,7 +262,7 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				if addGroupByPath(&m.db.Content.Root.Groups, path, ng) {
 					m.dirty = true
-					m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+					m.groups = m.groupTree()
 					m.statusMsg = "Group created"
 					m = m.loadEntries()
 				}
@@ -268,7 +273,7 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						g.Name = name
 						m.dirty = true
 						m.statusMsg = "Group renamed"
-						m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+						m.groups = m.groupTree()
 						if m.groupCursor >= len(m.groups) {
 							m.groupCursor = len(m.groups) - 1
 						}
@@ -337,8 +342,11 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.db = db
 			m.filePath = name
 			m.files = kdbxFiles()
-			m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+			m.groups = m.groupTree()
 			m.groupCursor = 0
+			if len(m.groups) > 1 {
+				m.groupCursor = 1
+			}
 			m.entryCursor = 0
 			m.focus = focusGroups
 			m.mode = "normal"
@@ -435,11 +443,14 @@ func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.db = db
-		m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+		m.groups = m.groupTree()
 		m.screen = screenBrowse
 		m.unlockErr = ""
 		m.unlockInput.SetValue("")
 		m.groupCursor = 0
+		if len(m.groups) > 1 {
+			m.groupCursor = 1
+		}
 		m.entryCursor = 0
 		m.focus = focusGroups
 		m.mode = "normal"
@@ -512,10 +523,14 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 	case "enter", "\r", "\n":
 		if m.focus == focusGroups {
-			// An empty group still gets the focus, otherwise there would be
-			// no way to add its first entry.
-			m.focus = focusEntries
-			m.entryCursor = 0
+			if m.atRoot() {
+				m.statusMsg = "Select a group to see its entries"
+			} else {
+				// An empty group still gets the focus, otherwise there would
+				// be no way to add its first entry.
+				m.focus = focusEntries
+				m.entryCursor = 0
+			}
 		} else if e := m.currentEntry(); e != nil {
 			m.detailEntry = e
 			m.showEntryPass = false
@@ -528,6 +543,8 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "N":
 		if m.focus == focusGroups {
 			m = m.startNewGroup()
+		} else if m.atRoot() {
+			m.statusMsg = "Select a group to hold the entry"
 		} else if len(m.groups) > 0 {
 			m = m.initEntryForm(editNewEntry, nil)
 			m.editMode = editNewEntry
@@ -538,10 +555,16 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.startRenameGroup()
 	case "d", "D":
 		if m.focus == focusGroups {
-			if len(m.groups) > 0 {
-				name := m.groups[m.groupCursor].name
-				m.confirmMode = "deleteGroup"
-				m.confirmMsg = "Delete group '" + name + "'? (Y)es / (N)o"
+			if m.atRoot() {
+				m.statusMsg = "The database root cannot be deleted"
+			} else if len(m.groups) > 0 {
+				g := m.groups[m.groupCursor]
+				if g.depth == 1 && len(m.db.Content.Root.Groups) == 1 {
+					m.statusMsg = "The only top level group cannot be deleted"
+				} else {
+					m.confirmMode = "deleteGroup"
+					m.confirmMsg = deleteGroupPrompt(m.groups[m.groupCursor].name, findGroup(m.db.Content.Root.Groups, g.path))
+				}
 			}
 		} else if e := m.currentEntry(); e != nil {
 			title := getEntryValue(e, "Title")
@@ -739,6 +762,10 @@ func (m model) startRenameGroup() model {
 	if m.focus != focusGroups || len(m.groups) == 0 {
 		return m
 	}
+	if m.atRoot() {
+		m.statusMsg = "The database root cannot be renamed"
+		return m
+	}
 	m.formGroup = textinput.New()
 	m.formGroup.Placeholder = "Group name"
 	m.formGroup.CharLimit = 128
@@ -750,17 +777,24 @@ func (m model) startRenameGroup() model {
 }
 
 func (m model) initIconPicker() model {
-	m.iconPickMode = true
+	m.iconPickMode = false
 	m.iconPickCursor = 0
 	m.iconPickTarget = ""
 	switch {
 	case m.screen == screenDetail && m.detailEntry != nil:
+		m.iconPickMode = true
 		m.iconPickTarget = "entry"
 		m.iconPickCursor = iconCursorFor(m.detailEntry.IconID)
 	case m.focus == focusGroups && m.groupCursor < len(m.groups):
+		if m.atRoot() {
+			m.statusMsg = "The database root has no icon"
+			return m
+		}
+		m.iconPickMode = true
 		m.iconPickTarget = "group"
 		m.iconPickCursor = iconCursorFor(m.groups[m.groupCursor].iconID)
 	case m.currentEntry() != nil:
+		m.iconPickMode = true
 		m.iconPickTarget = "entry"
 		m.iconPickCursor = iconCursorFor(m.currentEntry().IconID)
 	}

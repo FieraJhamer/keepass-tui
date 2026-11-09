@@ -152,7 +152,7 @@ func TestDeleteOnAGroupDeletesTheGroup(t *testing.T) {
 	after, _ = m.Update(keyRunes("y"))
 	m = after.(model)
 
-	if len(m.groups) != 1 || m.groups[0].name != "Work" {
+	if len(m.groups) != 2 || m.groups[1].name != "Work" {
 		t.Fatalf("only Work should be left, groups = %v", m.groups)
 	}
 	if m.db.Content.Root.Groups[0].Name != "Work" {

@@ -40,6 +40,7 @@ type groupInfo struct {
 	path   string
 	depth  int
 	iconID int64
+	last   bool // whether it is the last child of its parent
 }
 
 // entryItem points at an entry inside the database. It remembers the group and

@@ -85,7 +85,6 @@ func (m model) unlockView() string {
 }
 
 func (m model) browseView() string {
-	sidebarWidth := 40
 	contentWidth := m.width - sidebarWidth - 6
 	if contentWidth < 20 {
 		contentWidth = 20
@@ -106,14 +105,24 @@ func (m model) browseView() string {
 			contentView = header + "\n\n" + lipgloss.NewStyle().Foreground(grayColor).Render("No matching entries")
 		}
 	case m.focus == focusEntries:
-		if len(m.entries) > 0 {
-			contentView = m.renderEntryList(m.listHeight())
+		if m.atRoot() {
+			contentView = lipgloss.NewStyle().Foreground(grayColor).Render(
+				"The database root holds no entries.\n\n[Tab] Back to groups")
+		} else if len(m.entries) > 0 {
+			// The path of the group tells where the entries belong.
+			header := lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(m.currentPath())
+			contentView = header + "\n\n" + m.renderEntryList(m.listHeight()-2)
 		} else {
 			contentView = lipgloss.NewStyle().Foreground(grayColor).Render(
 				"No entries in this group.\n\n[n] New entry  │  [Tab] Back to groups")
 		}
 	default:
-		if len(m.groups) > 0 && m.groupCursor < len(m.groups) {
+		if m.atRoot() {
+			contentView = fmt.Sprintf("%s\n\nRoot of the database. %s.\n\n[n] New top level group  │  [/] Search in all groups",
+				lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render(m.rootName()),
+				plural(len(m.db.Content.Root.Groups), "top level group", "top level groups"),
+			)
+		} else if len(m.groups) > 0 && m.groupCursor < len(m.groups) {
 			group := m.groups[m.groupCursor]
 			info := fmt.Sprintf("%s  %s\n\nEntries: %d\n\n[n] New  │  [r] Rename  │  [d] Del  │  [i] Icon\n[/] Search in all groups",
 				iconEmoji(group.iconID),
@@ -131,6 +140,14 @@ func (m model) browseView() string {
 	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, panel)
 
 	return m.composeScreen(top)
+}
+
+// currentPath returns the path of the selected group.
+func (m model) currentPath() string {
+	if m.groupCursor < 0 || m.groupCursor >= len(m.groups) {
+		return ""
+	}
+	return m.groups[m.groupCursor].path
 }
 
 // listHeight returns how many content lines fit inside the panels: the screen
@@ -162,6 +179,27 @@ func visibleRange(cursor, count, size int) (int, int) {
 	return start, start + size
 }
 
+// treePrefix returns the branch characters that precede a node, built from
+// its ancestors, like the tree command of the terminal.
+func treePrefix(groups []groupInfo, index int) string {
+	var segs []string
+	level := groups[index].depth
+	for i := index - 1; i >= 0 && level > 1; i-- {
+		if groups[i].depth == level-1 {
+			if groups[i].last {
+				segs = append(segs, "    ")
+			} else {
+				segs = append(segs, "│   ")
+			}
+			level--
+		}
+	}
+	for i, j := 0, len(segs)-1; i < j; i, j = i+1, j-1 {
+		segs[i], segs[j] = segs[j], segs[i]
+	}
+	return strings.Join(segs, "")
+}
+
 func (m model) renderSidebar() string {
 	var lines []string
 	// Every group takes two lines: its name and the blank separator.
@@ -169,15 +207,36 @@ func (m model) renderSidebar() string {
 	start, end := visibleRange(m.groupCursor, len(m.groups), visible)
 	for i := start; i < end; i++ {
 		g := m.groups[i]
-		if i > start {
+		// A blank line separates the top level branches, the subtrees stay
+		// compact so the tree reads as a tree.
+		if i > start && g.depth <= 1 {
 			lines = append(lines, "")
 		}
-		prefix := strings.Repeat("  ", g.depth)
-		emoji := iconEmoji(g.iconID)
+
+		label := g.name
+		if g.depth > 0 {
+			branch := treePrefix(m.groups, i)
+			if g.last {
+				branch += "└───"
+			} else {
+				branch += "├───"
+			}
+			label = branch + label
+		}
+		if g.path != "" {
+			// The icon goes on the right of the title, in its own column.
+			emoji := iconEmoji(g.iconID)
+			pad := sidebarTextWidth - lipgloss.Width(label) - lipgloss.Width(emoji)
+			if pad < 1 {
+				pad = 1
+			}
+			label += strings.Repeat(" ", pad) + emoji
+		}
+
 		if i == m.groupCursor && m.focus == focusGroups {
-			lines = append(lines, lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("> "+emoji+" "+prefix+g.name))
+			lines = append(lines, lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("▸ "+label))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Foreground(textColor).Render("  "+emoji+" "+prefix+g.name))
+			lines = append(lines, "  "+label)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -448,6 +507,13 @@ func (m model) renderIconField() string {
 	}
 	return l + " " + inp
 }
+
+const (
+	sidebarWidth = 40
+	// The room left for the group text: the sidebar width without its
+	// border, its padding and the cursor marker.
+	sidebarTextWidth = sidebarWidth - 6
+)
 
 // iconPickerCellWidth is the width of every icon cell in the picker.
 const iconPickerCellWidth = 8

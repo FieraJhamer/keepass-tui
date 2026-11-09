@@ -33,7 +33,8 @@ func searchModel(t *testing.T) model {
 	t.Helper()
 	m := initialModel()
 	m.db = searchTestDB()
-	m.groups = flattenGroups(m.db.Content.Root.Groups, "", 0)
+	m.groups = m.groupTree()
+	m.groupCursor = 1
 	m.screen = screenBrowse
 	m.width = 120
 	m.height = 40
