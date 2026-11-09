@@ -485,6 +485,8 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
+	case "ctrl+s":
+		return m.executeCommand("/save")
 	case "up", "k", "K":
 		if m.focus == focusGroups {
 			if m.groupCursor > 0 {
@@ -623,6 +625,8 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
+	case "ctrl+s":
+		return m.executeCommand("/save")
 	case "esc":
 		m.screen = screenBrowse
 		m.detailEntry = nil
@@ -631,6 +635,8 @@ func (m model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = "command"
 		m.command = "/"
 		m.statusMsg = ""
+	case "c", "C":
+		m = m.copyPassword(m.detailEntry)
 	case "e", "E":
 		if m.detailEntry != nil {
 			m = m.initEntryForm(editEntry, m.detailEntry)
@@ -801,6 +807,19 @@ func (m model) initIconPicker() model {
 	return m
 }
 
+// copyPassword puts the password of an entry in the clipboard.
+func (m model) copyPassword(e *gokeepasslib.Entry) model {
+	if e == nil {
+		return m
+	}
+	if err := clipboard.WriteAll(getEntryValue(e, "Password")); err != nil {
+		m.statusMsg = "Clipboard error: " + err.Error()
+	} else {
+		m.statusMsg = "✓ Password copied to clipboard"
+	}
+	return m
+}
+
 func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	cmd = strings.TrimSpace(cmd)
 
@@ -820,14 +839,7 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	switch {
 	case cmd == "/copy":
-		if e := m.currentEntry(); e != nil {
-			val := getEntryValue(e, "Password")
-			if err := clipboard.WriteAll(val); err != nil {
-				m.statusMsg = "Clipboard error: " + err.Error()
-			} else {
-				m.statusMsg = "✓ Password copied to clipboard"
-			}
-		}
+		m = m.copyPassword(m.currentEntry())
 
 	case cmd == "/save":
 		err := saveDatabase(m.db, m.filePath)

@@ -307,17 +307,20 @@ func (m model) renderFooter() string {
 		if m.showEntryPass {
 			toggle = "[p] Hide pass"
 		}
-		hints = []string{"[/] Command", "[e] Edit", "[i] Icon", toggle, "[Esc] Back"}
+		// The order matters: when the terminal is narrow, fitHints drops the
+		// last ones, so the way out and the copy come first.
+		hints = []string{"[/] Command", "[Esc] Back", "[c] Copy", "[e] Edit", "[i] Icon", toggle}
 	}
 
-	width := m.width - 4
+	// The save hint shows up only when there is something to save.
+	marker := ""
 	if m.dirty {
-		width -= lipgloss.Width("  ◆ unsaved")
+		marker = "  ◆ unsaved"
+		hints = append([]string{"[Ctrl+S] Save"}, hints...)
 	}
-	line := fitHints(width, hints...)
+	line := fitHints(m.width-4-lipgloss.Width(marker), hints...) + marker
 
 	if m.dirty {
-		line += "  ◆ unsaved"
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(yellowColor).Render(line),
 		)
