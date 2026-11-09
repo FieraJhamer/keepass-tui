@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/tobischo/gokeepasslib/v3"
 )
 
@@ -139,10 +140,13 @@ func (m model) panels(contentView string) string {
 	}
 
 	sidebarContent := m.renderSidebar()
-	height := lipgloss.Height(contentView)
-	if h := lipgloss.Height(sidebarContent); h > height {
+	// The height comes from the rendered boxes: a long title wraps inside the
+	// box, so the frame has to grow with it.
+	height := lipgloss.Height(sidebarStyle.Width(sidebarWidth).Render(sidebarContent))
+	if h := lipgloss.Height(contentStyle.Width(contentWidth).Render(contentView)); h > height {
 		height = h
 	}
+	height -= 2 // the border is not part of the content
 
 	sidebarView := sidebarStyle.Width(sidebarWidth).Height(height).Render(sidebarContent)
 	panel := contentStyle.Width(contentWidth).Height(height).Render(contentView)
@@ -216,24 +220,38 @@ func (m model) renderSidebar() string {
 	for i := start; i < end; i++ {
 		g := m.groups[i]
 
-		label := g.name
+		branch := ""
 		if g.depth > 0 {
-			branch := treePrefix(m.groups, i)
+			branch = treePrefix(m.groups, i)
 			if g.last {
 				branch += "└───"
 			} else {
 				branch += "├───"
 			}
-			label = branch + label
 		}
+		icon := ""
 		if g.path != "" {
 			// The icon goes on the right of the title, in its own column.
-			emoji := iconEmoji(g.iconID)
-			pad := sidebarTextWidth - lipgloss.Width(label) - lipgloss.Width(emoji)
-			if pad < 1 {
-				pad = 1
-			}
-			label += strings.Repeat(" ", pad) + emoji
+			icon = iconEmoji(g.iconID)
+		}
+
+		// The line never gets wider than the sidebar: a long name is cut
+		// with an ellipsis, so the tree and the icon column stay in place.
+		budget := sidebarTextWidth - lipgloss.Width(icon)
+		gap := 0
+		if icon != "" {
+			gap = 1 // the space before the icon
+		}
+		if lipgloss.Width(branch) > budget-gap {
+			branch = ansi.Truncate(branch, budget-gap, "")
+		}
+		name := g.name
+		if room := budget - lipgloss.Width(branch) - gap; lipgloss.Width(name) > room {
+			name = ansi.Truncate(name, room, "…")
+		}
+		label := branch + name
+		if icon != "" {
+			label += strings.Repeat(" ", budget-lipgloss.Width(label)) + icon
 		}
 
 		if i == m.groupCursor && m.focus == focusGroups {
