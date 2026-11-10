@@ -3,12 +3,14 @@ package main
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	borderColor = lipgloss.Color("#383838")
-	accentColor = lipgloss.Color("#5f5fff")
-	textColor   = lipgloss.Color("#ffffff")
-	grayColor   = lipgloss.Color("#888888")
-	redColor    = lipgloss.Color("#ff5f5f")
-	yellowColor = lipgloss.Color("#ffff5f")
+	// Paleta inspirada en macOS: azul de sistema para lo activo, grises para
+	// la estructura y la segunda linea de texto, rojo y naranja para avisos.
+	borderColor = lipgloss.Color("#2D2D30") // gris de panel, tambien el fondo del footer
+	accentColor = lipgloss.Color("#0091FF") // azul de sistema, cursor y foco
+	textColor   = lipgloss.Color("#FFFFFF") // texto de alta prioridad
+	grayColor   = lipgloss.Color("#A1A1AA") // etiquetas y hints
+	redColor    = lipgloss.Color("#FF453A") // rojo de sistema, errores
+	yellowColor = lipgloss.Color("#FF9F0A") // naranja de sistema, advertencias
 
 	sidebarStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
