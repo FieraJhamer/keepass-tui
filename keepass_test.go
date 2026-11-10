@@ -12,12 +12,10 @@ func testDB() *gokeepasslib.Database {
 	db := gokeepasslib.NewDatabase()
 	db.Credentials = gokeepasslib.NewPasswordCredentials("master")
 	db.Content.Meta.DatabaseName = "test"
-	db.Content.Root.Groups = []gokeepasslib.Group{
-		{
-			Name:    "General",
-			Entries: []gokeepasslib.Entry{newEntry("Mail", "user@example.com", "s3cret", "https://example.com", "note", 0)},
-		},
-	}
+	// The groups need a real uuid, the app finds them by uuid.
+	general := newGroup("General", 0)
+	general.Entries = []gokeepasslib.Entry{newEntry("Mail", "user@example.com", "s3cret", "https://example.com", "note", 0)}
+	db.Content.Root.Groups = []gokeepasslib.Group{general}
 	return db
 }
 

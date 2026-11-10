@@ -42,7 +42,8 @@ func TestEntryPasswordStartsHiddenOnEveryEntry(t *testing.T) {
 	m.screen = screenBrowse
 	m.focus = focusEntries
 	m.db = testDB()
-	m.groups = []groupInfo{{name: "General", path: "General"}}
+	m.groups = m.groupTree()
+	m.groupCursor = 1 // the General group
 	m = m.loadEntries()
 
 	// Enter opens the detail with the password hidden.
@@ -124,7 +125,7 @@ func TestEditingFromTheDetailViewChangesTheOpenEntry(t *testing.T) {
 	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if got := getEntryValue(&group.Entries[0], "Title"); got != "Gmail nuevo" {
 		t.Fatalf("first entry = %q, want %q", got, "Gmail nuevo")
 	}

@@ -105,8 +105,8 @@ func countContents(g *gokeepasslib.Group) (groups, entries int) {
 	return groups, entries
 }
 
-// shortcut: group paths are "/"-joined, so a group whose name contains "/" breaks
-// lookup; switch to UUID-based paths if group names ever need slashes.
+// flattenGroups returns every group of the tree with its path, its uuid and
+// its depth. The path is only for showing; the uuid is the identity.
 func flattenGroups(groups []gokeepasslib.Group, prefix string, depth int) []groupInfo {
 	var result []groupInfo
 	for i := range groups {
@@ -118,6 +118,7 @@ func flattenGroups(groups []gokeepasslib.Group, prefix string, depth int) []grou
 		result = append(result, groupInfo{
 			name:   g.Name,
 			path:   path,
+			uuid:   g.UUID,
 			depth:  depth,
 			iconID: g.IconID,
 			last:   i == len(groups)-1,
@@ -152,31 +153,21 @@ func (m model) rootName() string {
 
 // atRoot tells if the selected node is the synthetic database root.
 func (m model) atRoot() bool {
-	return m.groupCursor >= 0 && m.groupCursor < len(m.groups) && m.groups[m.groupCursor].path == ""
+	return m.groupCursor >= 0 && m.groupCursor < len(m.groups) && m.groups[m.groupCursor].depth == 0
 }
 
-func findGroup(groups []gokeepasslib.Group, path string) *gokeepasslib.Group {
-	if path == "" {
-		return nil
-	}
-	parts := strings.Split(path, "/")
-	currentGroups := groups
-	var current *gokeepasslib.Group
-	for _, part := range parts {
-		found := false
-		for i := range currentGroups {
-			if currentGroups[i].Name == part {
-				current = &currentGroups[i]
-				currentGroups = current.Groups
-				found = true
-				break
-			}
+// findGroupByUUID returns the group with that uuid, wherever it is. The uuid
+// is the only safe way to find a group: names can repeat and can hold slashes.
+func findGroupByUUID(groups []gokeepasslib.Group, uuid gokeepasslib.UUID) *gokeepasslib.Group {
+	for i := range groups {
+		if groups[i].UUID == uuid {
+			return &groups[i]
 		}
-		if !found {
-			return nil
+		if g := findGroupByUUID(groups[i].Groups, uuid); g != nil {
+			return g
 		}
 	}
-	return current
+	return nil
 }
 
 func getEntryValue(entry *gokeepasslib.Entry, key string) string {
@@ -205,7 +196,7 @@ func searchItems(groups []gokeepasslib.Group, query string) []entryItem {
 			for j := range g.Entries {
 				e := &g.Entries[j]
 				if entryMatches(e, q) {
-					items = append(items, entryItem{groupPath: path, index: j, entry: e})
+					items = append(items, entryItem{groupPath: path, groupUUID: g.UUID, index: j, entry: e})
 				}
 			}
 			walk(g.Groups, path)
@@ -270,36 +261,34 @@ func removeEntry(group *gokeepasslib.Group, idx int) {
 	}
 }
 
-func addGroupByPath(groups *[]gokeepasslib.Group, path string, ng gokeepasslib.Group) bool {
-	if path == "" {
+// addGroupByUUID puts a group inside the parent with that uuid. The zero uuid
+// means the top level.
+func addGroupByUUID(groups *[]gokeepasslib.Group, parent gokeepasslib.UUID, ng gokeepasslib.Group) bool {
+	if parent == (gokeepasslib.UUID{}) {
 		*groups = append(*groups, ng)
 		return true
 	}
-	parts := strings.Split(path, "/")
 	for i := range *groups {
-		if (*groups)[i].Name == parts[0] {
-			if len(parts) == 1 {
-				(*groups)[i].Groups = append((*groups)[i].Groups, ng)
-				return true
-			}
-			return addGroupByPath(&(*groups)[i].Groups, strings.Join(parts[1:], "/"), ng)
+		if (*groups)[i].UUID == parent {
+			(*groups)[i].Groups = append((*groups)[i].Groups, ng)
+			return true
+		}
+		if addGroupByUUID(&(*groups)[i].Groups, parent, ng) {
+			return true
 		}
 	}
 	return false
 }
 
-func removeGroupByPath(groups *[]gokeepasslib.Group, path string) bool {
-	if path == "" {
-		return false
-	}
-	parts := strings.Split(path, "/")
+// removeGroupByUUID deletes the group with that uuid.
+func removeGroupByUUID(groups *[]gokeepasslib.Group, uuid gokeepasslib.UUID) bool {
 	for i := range *groups {
-		if (*groups)[i].Name == parts[0] {
-			if len(parts) == 1 {
-				*groups = append((*groups)[:i], (*groups)[i+1:]...)
-				return true
-			}
-			return removeGroupByPath(&(*groups)[i].Groups, strings.Join(parts[1:], "/"))
+		if (*groups)[i].UUID == uuid {
+			*groups = append((*groups)[:i], (*groups)[i+1:]...)
+			return true
+		}
+		if removeGroupByUUID(&(*groups)[i].Groups, uuid) {
+			return true
 		}
 	}
 	return false

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/tobischo/gokeepasslib/v3"
 )
 
 func groupModel(t *testing.T) model {
@@ -71,6 +72,123 @@ func TestSidebarDrawsTheGroupsAsATree(t *testing.T) {
 	}
 }
 
+// A group name can hold a slash or repeat the name of a sibling. The app
+// finds groups by uuid, so those groups still show their own entries.
+func TestAwkwardGroupNamesStillShowTheirEntries(t *testing.T) {
+	m := searchModel(t)
+	m.db.Content.Root.Groups = m.db.Content.Root.Groups[:1]
+	db := &m.db.Content.Root.Groups[0]
+	db.Name = "General"
+
+	slashed := newGroup("Bancos/Internet", 0)
+	slashed.Entries = []gokeepasslib.Entry{newEntry("Banco X", "u", "p", "url", "", 0)}
+	twin := newGroup("General", 0)
+	twin.Entries = []gokeepasslib.Entry{newEntry("Twin", "u", "p", "url", "", 0)}
+	db.Groups = []gokeepasslib.Group{slashed, twin}
+	m.groups = m.groupTree()
+
+	// The tree is root, General, Bancos/Internet and the other General.
+	m.groupCursor = 2
+	m = m.loadEntries()
+	if len(m.entries) != 1 || getEntryValue(m.entries[0].entry, "Title") != "Banco X" {
+		t.Fatalf("the group with a slash should show its entry, got %d entries", len(m.entries))
+	}
+
+	m.groupCursor = 3
+	m = m.loadEntries()
+	if len(m.entries) != 1 || getEntryValue(m.entries[0].entry, "Title") != "Twin" {
+		t.Fatalf("the group with the same name should show its own entry, got %d entries", len(m.entries))
+	}
+}
+
+// Renaming a group whose name holds a slash still reaches the right group.
+func TestRenamingAGroupWithASlash(t *testing.T) {
+	m := searchModel(t)
+	m.focus = focusGroups
+	m.db.Content.Root.Groups = m.db.Content.Root.Groups[:1]
+	db := &m.db.Content.Root.Groups[0]
+	db.Name = "General"
+	db.Groups = []gokeepasslib.Group{newGroup("Bancos/Internet", 0)}
+	m.groups = m.groupTree()
+	m.groupCursor = 2
+
+	after, _ := m.Update(keyRunes("r"))
+	m = after.(model)
+	if m.editMode != editGroup {
+		t.Fatalf("editMode = %v, want editGroup", m.editMode)
+	}
+	m.formGroup.SetValue("Bancos")
+	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = after.(model)
+
+	if db.Groups[0].Name != "Bancos" {
+		t.Fatalf("the group name = %q, want %q", db.Groups[0].Name, "Bancos")
+	}
+}
+
+// Deleting a group whose name holds a slash removes that group and not the
+// first one with the same name.
+func TestDeletingAGroupWithASlash(t *testing.T) {
+	m := searchModel(t)
+	m.focus = focusGroups
+	m.db.Content.Root.Groups = m.db.Content.Root.Groups[:1]
+	db := &m.db.Content.Root.Groups[0]
+	db.Name = "General"
+	db.Groups = []gokeepasslib.Group{newGroup("Bancos/Internet", 0)}
+	m.groups = m.groupTree()
+	m.groupCursor = 2
+
+	after, _ := m.Update(keyRunes("d"))
+	m = after.(model)
+	if m.confirmMode != "deleteGroup" {
+		t.Fatalf("confirmMode = %q, want %q", m.confirmMode, "deleteGroup")
+	}
+	after, _ = m.Update(keyRunes("y"))
+	m = after.(model)
+
+	if len(db.Groups) != 0 {
+		t.Fatalf("the group should be gone, got %d groups", len(db.Groups))
+	}
+	if len(m.db.Content.Root.Groups) != 1 || m.db.Content.Root.Groups[0].Name != "General" {
+		t.Fatal("the other group should be untouched")
+	}
+}
+
+// A new group goes inside the selected group.
+func TestNewGroupGoesInsideTheSelectedGroup(t *testing.T) {
+	m := groupModel(t)
+
+	after, _ := m.Update(keyRunes("n"))
+	m = after.(model)
+	m.formGroup.SetValue("Trabajo")
+	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = after.(model)
+
+	general := groupByName(m.db.Content.Root.Groups, "General")
+	if len(general.Groups) != 1 || general.Groups[0].Name != "Trabajo" {
+		t.Fatalf("the new group should be inside General, got %d sub groups", len(general.Groups))
+	}
+}
+
+// A new group on the root goes to the top level.
+func TestNewGroupOnTheRootGoesToTheTopLevel(t *testing.T) {
+	m := groupModel(t)
+	m.groupCursor = 0 // the database root
+
+	after, _ := m.Update(keyRunes("n"))
+	m = after.(model)
+	m.formGroup.SetValue("Trabajo")
+	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = after.(model)
+
+	if len(m.db.Content.Root.Groups) != 3 {
+		t.Fatalf("expected 3 top level groups, got %d", len(m.db.Content.Root.Groups))
+	}
+	if m.db.Content.Root.Groups[2].Name != "Trabajo" {
+		t.Fatalf("the new group = %q, want %q", m.db.Content.Root.Groups[2].Name, "Trabajo")
+	}
+}
+
 func TestNewOnAGroupCreatesAGroup(t *testing.T) {
 	m := groupModel(t)
 
@@ -112,7 +230,7 @@ func TestIconOnAGroupChangesTheGroupIcon(t *testing.T) {
 	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if group.IconID != 5 {
 		t.Fatalf("the group icon = %d, want 5", group.IconID)
 	}
@@ -140,7 +258,7 @@ func TestIconOnAnEntryChangesTheEntryIcon(t *testing.T) {
 	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if group.Entries[0].IconID != 7 {
 		t.Fatalf("the entry icon = %d, want 7", group.Entries[0].IconID)
 	}

@@ -77,7 +77,7 @@ func TestIconChosenInTheFormIsAppliedToTheNewEntry(t *testing.T) {
 	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if len(group.Entries) != 3 {
 		t.Fatalf("expected 3 entries in General, got %d", len(group.Entries))
 	}

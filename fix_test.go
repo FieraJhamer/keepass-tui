@@ -77,7 +77,7 @@ func TestFirstEntryOfAnEmptyGroupIsReachable(t *testing.T) {
 	after, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General/Empty")
+	group := groupByName(m.db.Content.Root.Groups, "Empty")
 	if group == nil || len(group.Entries) != 1 {
 		t.Fatalf("the entry should be in the empty group, group = %v", group)
 	}
@@ -175,7 +175,7 @@ func TestDeleteOnAnEntryDeletesTheEntry(t *testing.T) {
 	after, _ = m.Update(keyRunes("y"))
 	m = after.(model)
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if len(group.Entries) != 1 {
 		t.Fatalf("expected 1 entry left, got %d", len(group.Entries))
 	}
@@ -189,7 +189,7 @@ func TestEntryListScrollsToKeepTheCursorVisible(t *testing.T) {
 	m.height = 24
 	m.focus = focusEntries
 
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	for i := 0; i < 40; i++ {
 		group.Entries = append(group.Entries, newEntry(fmt.Sprintf("Entry %02d", i), "user", "pass", "", "", 0))
 	}

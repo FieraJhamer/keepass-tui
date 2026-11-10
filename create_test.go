@@ -64,7 +64,7 @@ func TestCreateDatabaseEntryRoundTrip(t *testing.T) {
 		t.Fatalf("createDatabase failed: %v", err)
 	}
 
-	group := findGroup(db.Content.Root.Groups, "General")
+	group := groupByName(db.Content.Root.Groups, "General")
 	if group == nil {
 		t.Fatal("General group not found")
 	}
@@ -77,7 +77,7 @@ func TestCreateDatabaseEntryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
 	}
-	g := findGroup(reopened.Content.Root.Groups, "General")
+	g := groupByName(reopened.Content.Root.Groups, "General")
 	if g == nil || len(g.Entries) != 1 {
 		t.Fatalf("expected 1 entry in General, got %v", g)
 	}

@@ -36,8 +36,11 @@ const (
 )
 
 type groupInfo struct {
-	name   string
+	name string
+	// path is only used to show where the group is, never to find it: two
+	// groups can have the same name and a name can hold a slash.
 	path   string
+	uuid   gokeepasslib.UUID
 	depth  int
 	iconID int64
 	last   bool // whether it is the last child of its parent
@@ -47,7 +50,8 @@ type groupInfo struct {
 // the index so edits, icon changes and deletions reach the right entry even
 // when the list is a search result from another group.
 type entryItem struct {
-	groupPath string
+	groupPath string            // only to show where the entry comes from
+	groupUUID gokeepasslib.UUID // the group the entry belongs to
 	index     int
 	entry     *gokeepasslib.Entry
 }

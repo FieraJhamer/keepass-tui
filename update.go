@@ -70,7 +70,7 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "Y":
 			if e := m.currentEntry(); e != nil {
 				item := m.entries[m.entryCursor]
-				group := findGroup(m.db.Content.Root.Groups, item.groupPath)
+				group := findGroupByUUID(m.db.Content.Root.Groups, item.groupUUID)
 				if group != nil {
 					removeEntry(group, item.index)
 					m.dirty = true
@@ -88,8 +88,8 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y", "Y":
 			if m.groupCursor >= 0 && m.groupCursor < len(m.groups) {
-				path := m.groups[m.groupCursor].path
-				if removeGroupByPath(&m.db.Content.Root.Groups, path) {
+				uuid := m.groups[m.groupCursor].uuid
+				if removeGroupByUUID(&m.db.Content.Root.Groups, uuid) {
 					m.dirty = true
 					m.statusMsg = "Group deleted"
 					m.groups = m.groupTree()
@@ -131,8 +131,7 @@ func (m model) handleIconPickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = iconEmoji(id) + " Icon updated"
 			}
 		} else if m.iconPickTarget == "group" && m.groupCursor < len(m.groups) {
-			path := m.groups[m.groupCursor].path
-			g := findGroup(m.db.Content.Root.Groups, path)
+			g := findGroupByUUID(m.db.Content.Root.Groups, m.groups[m.groupCursor].uuid)
 			if g != nil {
 				g.IconID = id
 				m.groups[m.groupCursor].iconID = id
@@ -201,7 +200,7 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				e := newEntry(title, userName, password, url, notes, m.formIconID)
 				var group *gokeepasslib.Group
 				if m.groupCursor >= 0 && m.groupCursor < len(m.groups) {
-					group = findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
+					group = findGroupByUUID(m.db.Content.Root.Groups, m.groups[m.groupCursor].uuid)
 				}
 				if group == nil {
 					m.statusMsg = "Select a group to hold the entry"
@@ -254,11 +253,12 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.editMode == editNewGroup {
 				ng := newGroup(name, 0)
-				path := ""
-				if len(m.groups) > 0 {
-					path = m.groups[m.groupCursor].path
+				// The zero uuid means the top level.
+				parent := gokeepasslib.UUID{}
+				if !m.atRoot() && m.groupCursor < len(m.groups) {
+					parent = m.groups[m.groupCursor].uuid
 				}
-				if addGroupByPath(&m.db.Content.Root.Groups, path, ng) {
+				if addGroupByUUID(&m.db.Content.Root.Groups, parent, ng) {
 					m.dirty = true
 					m.groups = m.groupTree()
 					m.statusMsg = "Group created"
@@ -266,7 +266,7 @@ func (m model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			} else {
 				if m.groupCursor < len(m.groups) {
-					g := findGroup(m.db.Content.Root.Groups, m.groups[m.groupCursor].path)
+					g := findGroupByUUID(m.db.Content.Root.Groups, m.groups[m.groupCursor].uuid)
 					if g != nil {
 						g.Name = name
 						m.dirty = true
@@ -563,7 +563,7 @@ func (m model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.statusMsg = "The only top level group cannot be deleted"
 				} else {
 					m.confirmMode = "deleteGroup"
-					m.confirmMsg = deleteGroupPrompt(m.groups[m.groupCursor].name, findGroup(m.db.Content.Root.Groups, g.path))
+					m.confirmMsg = deleteGroupPrompt(m.groups[m.groupCursor].name, findGroupByUUID(m.db.Content.Root.Groups, g.uuid))
 				}
 			}
 		} else if e := m.currentEntry(); e != nil {
@@ -673,13 +673,14 @@ func (m model) groupItems() []entryItem {
 		return nil
 	}
 	path := m.groups[m.groupCursor].path
-	g := findGroup(m.db.Content.Root.Groups, path)
+	uuid := m.groups[m.groupCursor].uuid
+	g := findGroupByUUID(m.db.Content.Root.Groups, uuid)
 	if g == nil {
 		return nil
 	}
 	items := make([]entryItem, 0, len(g.Entries))
 	for i := range g.Entries {
-		items = append(items, entryItem{groupPath: path, index: i, entry: &g.Entries[i]})
+		items = append(items, entryItem{groupPath: path, groupUUID: uuid, index: i, entry: &g.Entries[i]})
 	}
 	return items
 }

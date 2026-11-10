@@ -230,7 +230,7 @@ func (m model) renderSidebar() string {
 			}
 		}
 		icon := ""
-		if g.path != "" {
+		if g.depth > 0 {
 			// The icon goes on the right of the title, in its own column.
 			icon = iconEmoji(g.iconID)
 		}

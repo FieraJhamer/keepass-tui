@@ -11,21 +11,17 @@ import (
 func searchTestDB() *gokeepasslib.Database {
 	db := gokeepasslib.NewDatabase()
 	db.Credentials = gokeepasslib.NewPasswordCredentials("master")
-	db.Content.Root.Groups = []gokeepasslib.Group{
-		{
-			Name: "General",
-			Entries: []gokeepasslib.Entry{
-				newEntry("Gmail", "user@gmail.com", "p1", "https://mail.google.com", "", 0),
-				newEntry("Bank", "user@bank.com", "p2", "https://bank.com", "", 0),
-			},
-		},
-		{
-			Name: "Work",
-			Entries: []gokeepasslib.Entry{
-				newEntry("Jira", "user@jira.com", "p3", "https://jira.com", "", 0),
-			},
-		},
+	// The groups need a real uuid, the app finds them by uuid.
+	general := newGroup("General", 0)
+	general.Entries = []gokeepasslib.Entry{
+		newEntry("Gmail", "user@gmail.com", "p1", "https://mail.google.com", "", 0),
+		newEntry("Bank", "user@bank.com", "p2", "https://bank.com", "", 0),
 	}
+	work := newGroup("Work", 0)
+	work.Entries = []gokeepasslib.Entry{
+		newEntry("Jira", "user@jira.com", "p3", "https://jira.com", "", 0),
+	}
+	db.Content.Root.Groups = []gokeepasslib.Group{general, work}
 	return db
 }
 
@@ -39,6 +35,20 @@ func searchModel(t *testing.T) model {
 	m.width = 120
 	m.height = 40
 	return m.loadEntries()
+}
+
+// groupByName finds a group by its name, for the tests. The app itself uses
+// the uuid, because names can repeat.
+func groupByName(groups []gokeepasslib.Group, name string) *gokeepasslib.Group {
+	for i := range groups {
+		if groups[i].Name == name {
+			return &groups[i]
+		}
+		if g := groupByName(groups[i].Groups, name); g != nil {
+			return g
+		}
+	}
+	return nil
 }
 
 func TestSearchFindsEntriesAcrossGroups(t *testing.T) {
@@ -96,7 +106,7 @@ func TestSearchResultsPointIntoTheDatabase(t *testing.T) {
 
 	// Editing through the result must change the entry inside the database.
 	setEntryValue(items[0].entry, "Title", "Gmail renamed")
-	group := findGroup(m.db.Content.Root.Groups, "General")
+	group := groupByName(m.db.Content.Root.Groups, "General")
 	if got := getEntryValue(&group.Entries[0], "Title"); got != "Gmail renamed" {
 		t.Fatalf("database title = %q, want %q", got, "Gmail renamed")
 	}
@@ -121,11 +131,11 @@ func TestDeletingASearchResultRemovesTheRightEntry(t *testing.T) {
 	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	m = after.(model)
 
-	work := findGroup(m.db.Content.Root.Groups, "Work")
+	work := groupByName(m.db.Content.Root.Groups, "Work")
 	if len(work.Entries) != 0 {
 		t.Fatalf("the Work entry should be gone, got %d entries", len(work.Entries))
 	}
-	general := findGroup(m.db.Content.Root.Groups, "General")
+	general := groupByName(m.db.Content.Root.Groups, "General")
 	if len(general.Entries) != 2 {
 		t.Fatalf("the General entries should be untouched, got %d", len(general.Entries))
 	}
