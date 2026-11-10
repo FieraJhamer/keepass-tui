@@ -143,6 +143,50 @@ func TestQuitCommandClosesTheProgram(t *testing.T) {
 	}
 }
 
+// A save that fails must not close the program: the changes would be lost.
+func TestFailedSaveKeepsTheProgramOpen(t *testing.T) {
+	m := searchModel(t)
+	// A folder that does not exist makes the save fail.
+	m.filePath = filepath.Join(t.TempDir(), "missing", "test.kdbx")
+	m.dirty = true
+	m.quit = true
+
+	after, cmd := m.executeCommand("/save")
+	m = after.(model)
+	if cmd != nil {
+		t.Fatal("a failed save must not close the program")
+	}
+	if m.quit {
+		t.Fatal("a failed save must clear the quit flag")
+	}
+	if !m.dirty {
+		t.Fatal("a failed save must keep the changes pending")
+	}
+	if !strings.Contains(m.statusMsg, "Save error") {
+		t.Fatalf("statusMsg = %q, want a save error", m.statusMsg)
+	}
+}
+
+// Ctrl+C cancels the confirmation: it closes the dialog but keeps the
+// changes and the program open.
+func TestCtrlCCancelsTheConfirmation(t *testing.T) {
+	m := searchModel(t)
+	m.dirty = true
+	m.confirmMode = "quit"
+
+	after, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = after.(model)
+	if m.confirmMode != "" {
+		t.Fatal("ctrl+c should close the confirmation")
+	}
+	if cmd != nil {
+		t.Fatal("ctrl+c should not close the program while the confirmation is open")
+	}
+	if !m.dirty {
+		t.Fatal("ctrl+c should keep the changes")
+	}
+}
+
 // isQuit tells if a command closes the program.
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {

@@ -22,10 +22,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.quit {
-			return m, tea.Quit
-		}
-
 		if m.confirmMode != "" {
 			return m.handleConfirmKey(msg)
 		}
@@ -64,9 +60,8 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d", "D":
 			m.confirmMode = ""
 			m.confirmMsg = ""
-			m.quit = true
 			return m, tea.Quit
-		case "c", "C", "esc":
+		case "c", "C", "esc", "ctrl+c":
 			m.confirmMode = ""
 			m.confirmMsg = ""
 		}
@@ -85,7 +80,7 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.confirmMode = ""
 			m.confirmMsg = ""
-		case "n", "N", "esc":
+		case "n", "N", "esc", "ctrl+c":
 			m.confirmMode = ""
 			m.confirmMsg = ""
 		}
@@ -109,7 +104,7 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.confirmMode = ""
 			m.confirmMsg = ""
-		case "n", "N", "esc":
+		case "n", "N", "esc", "ctrl+c":
 			m.confirmMode = ""
 			m.confirmMsg = ""
 		}
@@ -929,7 +924,6 @@ func (m model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 			m.confirmMsg = "Unsaved changes. (S)ave & quit / (D)iscard / (C)ancel"
 			return m, nil
 		}
-		m.quit = true
 		return m, tea.Quit
 
 	default:

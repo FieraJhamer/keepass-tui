@@ -84,7 +84,7 @@ type model struct {
 
 	statusMsg string
 
-	quit  bool
+	quit  bool // close the program after the next successful save
 	dirty bool
 
 	editMode     editMode
