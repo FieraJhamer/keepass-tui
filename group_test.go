@@ -189,6 +189,43 @@ func TestNewGroupOnTheRootGoesToTheTopLevel(t *testing.T) {
 	}
 }
 
+// A broken database can repeat a uuid or leave it empty. The path breaks the
+// tie, so each group still shows its own entries.
+func TestGroupsWithBrokenUUIDsStillShowTheirEntries(t *testing.T) {
+	m := searchModel(t)
+	m.db.Content.Root.Groups = m.db.Content.Root.Groups[:1]
+	db := &m.db.Content.Root.Groups[0]
+	db.Name = "General"
+
+	first := newGroup("Primero", 0)
+	first.Entries = []gokeepasslib.Entry{newEntry("One", "u", "p", "url", "", 0)}
+	second := newGroup("Segundo", 0)
+	second.Entries = []gokeepasslib.Entry{newEntry("Two", "u", "p", "url", "", 0)}
+	second.UUID = first.UUID // the same uuid
+	third := newGroup("Tercero", 0)
+	third.Entries = []gokeepasslib.Entry{newEntry("Three", "u", "p", "url", "", 0)}
+	third.UUID = gokeepasslib.UUID{}
+	db.Groups = []gokeepasslib.Group{first, second, third}
+	m.groups = m.groupTree()
+
+	// The tree is root, General, Primero, Segundo and Tercero.
+	want := []struct {
+		cursor int
+		title  string
+	}{
+		{2, "One"},
+		{3, "Two"},
+		{4, "Three"},
+	}
+	for _, w := range want {
+		m.groupCursor = w.cursor
+		m = m.loadEntries()
+		if len(m.entries) != 1 || getEntryValue(m.entries[0].entry, "Title") != w.title {
+			t.Fatalf("the group at %d should show %q, got %d entries", w.cursor, w.title, len(m.entries))
+		}
+	}
+}
+
 func TestNewOnAGroupCreatesAGroup(t *testing.T) {
 	m := groupModel(t)
 

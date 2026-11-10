@@ -156,15 +156,20 @@ func (m model) atRoot() bool {
 	return m.groupCursor >= 0 && m.groupCursor < len(m.groups) && m.groups[m.groupCursor].depth == 0
 }
 
-// findGroupByUUID returns the group with that uuid, wherever it is. The uuid
-// is the only safe way to find a group: names can repeat and can hold slashes.
-func findGroupByUUID(groups []gokeepasslib.Group, uuid gokeepasslib.UUID) *gokeepasslib.Group {
+// findGroup returns the group with that uuid and path. The uuid alone is not
+// enough: a database can repeat it, so the path breaks the tie.
+func findGroup(groups []gokeepasslib.Group, prefix string, uuid gokeepasslib.UUID, path string) *gokeepasslib.Group {
 	for i := range groups {
-		if groups[i].UUID == uuid {
-			return &groups[i]
+		g := &groups[i]
+		p := g.Name
+		if prefix != "" {
+			p = prefix + "/" + g.Name
 		}
-		if g := findGroupByUUID(groups[i].Groups, uuid); g != nil {
+		if g.UUID == uuid && p == path {
 			return g
+		}
+		if found := findGroup(g.Groups, p, uuid, path); found != nil {
+			return found
 		}
 	}
 	return nil
@@ -261,33 +266,43 @@ func removeEntry(group *gokeepasslib.Group, idx int) {
 	}
 }
 
-// addGroupByUUID puts a group inside the parent with that uuid. The zero uuid
-// means the top level.
-func addGroupByUUID(groups *[]gokeepasslib.Group, parent gokeepasslib.UUID, ng gokeepasslib.Group) bool {
-	if parent == (gokeepasslib.UUID{}) {
+// addGroup puts a group inside the parent with that uuid and path. An empty
+// path means the top level.
+func addGroup(groups *[]gokeepasslib.Group, prefix string, uuid gokeepasslib.UUID, path string, ng gokeepasslib.Group) bool {
+	if path == "" {
 		*groups = append(*groups, ng)
 		return true
 	}
 	for i := range *groups {
-		if (*groups)[i].UUID == parent {
-			(*groups)[i].Groups = append((*groups)[i].Groups, ng)
+		g := &(*groups)[i]
+		p := g.Name
+		if prefix != "" {
+			p = prefix + "/" + g.Name
+		}
+		if g.UUID == uuid && p == path {
+			g.Groups = append(g.Groups, ng)
 			return true
 		}
-		if addGroupByUUID(&(*groups)[i].Groups, parent, ng) {
+		if addGroup(&g.Groups, p, uuid, path, ng) {
 			return true
 		}
 	}
 	return false
 }
 
-// removeGroupByUUID deletes the group with that uuid.
-func removeGroupByUUID(groups *[]gokeepasslib.Group, uuid gokeepasslib.UUID) bool {
+// removeGroup deletes the group with that uuid and path.
+func removeGroup(groups *[]gokeepasslib.Group, prefix string, uuid gokeepasslib.UUID, path string) bool {
 	for i := range *groups {
-		if (*groups)[i].UUID == uuid {
+		g := &(*groups)[i]
+		p := g.Name
+		if prefix != "" {
+			p = prefix + "/" + g.Name
+		}
+		if g.UUID == uuid && p == path {
 			*groups = append((*groups)[:i], (*groups)[i+1:]...)
 			return true
 		}
-		if removeGroupByUUID(&(*groups)[i].Groups, uuid) {
+		if removeGroup(&g.Groups, p, uuid, path) {
 			return true
 		}
 	}
