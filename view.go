@@ -322,7 +322,7 @@ func (m model) renderFooter() string {
 	case m.screen == screenBrowse && m.focus == focusGroups:
 		hints = []string{"[/] Command", "[Tab] Entries", "[n] New group", "[r] Rename", "[d] Del", "[i] Icon"}
 	case m.screen == screenBrowse:
-		hints = []string{"[/] Command", "[↵] Details", "[n] New entry", "[Tab] Groups", "[d] Del", "[i] Icon"}
+		hints = []string{"[/] Command", "[↵] Details", "[n] New entry", "[⇧Tab] Groups", "[d] Del", "[i] Icon"}
 	default:
 		toggle := "[p] Show pass"
 		if m.showEntryPass {
